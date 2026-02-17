@@ -14,7 +14,6 @@ DEFAULTS = {
     "exclude_fields": [],
 }
 
-
 def load_config(path=None):
     path = path or CONFIG_PATH
     config = dict(DEFAULTS)
@@ -23,7 +22,6 @@ def load_config(path=None):
             user = json.load(f)
         config.update(user)
     return config
-
 
 def save_config(config, path=None):
     path = path or CONFIG_PATH

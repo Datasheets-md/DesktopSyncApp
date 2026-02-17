@@ -7,11 +7,9 @@ sys.path.insert(0, SCRIPT_DIR)
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QTimer, QThread, pyqtSignal
-
 from config import load_config
 from sync_engine import run_sync
 from icon import icon_ok, icon_syncing, icon_error
-
 
 class SyncWorker(QThread):
     finished = pyqtSignal(dict)
@@ -27,7 +25,6 @@ class SyncWorker(QThread):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
-
 
 class KiCadSyncApp:
     def __init__(self):
@@ -132,11 +129,9 @@ class KiCadSyncApp:
     def run(self):
         sys.exit(self.app.exec())
 
-
 def main():
     app = KiCadSyncApp()
     app.run()
-
 
 if __name__ == "__main__":
     main()

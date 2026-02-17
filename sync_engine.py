@@ -20,7 +20,6 @@ from db import (
 )
 from dbl import write_dbl
 
-
 def extract_component(component, param_names):
     metadata = component.get("metadata") or []
     meta = metadata[0] if metadata else {}
@@ -52,7 +51,6 @@ def extract_component(component, param_names):
 
     return row
 
-
 def discover_param_names(components):
     names = set()
     for comp in components:
@@ -62,7 +60,6 @@ def discover_param_names(components):
             if col:
                 names.add(col)
     return sorted(names)
-
 
 def group_by_category(components):
     groups = {}
@@ -77,7 +74,6 @@ def group_by_category(components):
             groups[table_name] = []
         groups[table_name].append(comp)
     return groups
-
 
 def run_sync(config=None):
     config = config or load_config()
@@ -143,7 +139,6 @@ def run_sync(config=None):
         "error": None,
     }
 
-
 def main():
     parser = argparse.ArgumentParser(description="Sync private components to local SQLite for KiCad")
     parser.add_argument("--config")
@@ -159,7 +154,6 @@ def main():
 
     print(f"\nDone! {result['components']} components in {result['tables']} tables.")
     print("Re-open the symbol chooser in KiCad to see updates.")
-
 
 if __name__ == "__main__":
     main()

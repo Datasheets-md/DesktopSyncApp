@@ -4,7 +4,6 @@ import os
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DBL_PATH = os.path.join(SCRIPT_DIR, "kicadsync.kicad_dbl")
 
-
 def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
     exclude_fields = set(exclude_fields or [])
 
@@ -77,7 +76,6 @@ def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
     }
 
     return dbl
-
 
 def write_dbl(table_names, param_columns, exclude_fields=None, path=None):
     path = path or DBL_PATH

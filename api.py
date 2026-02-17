@@ -1,20 +1,16 @@
-import psycopg2
 import psycopg2.extras
-
-
-def _connect(config):
-    return psycopg2.connect(
-        host=config.get("db_host", "localhost"),
-        port=config.get("db_port", 5432),
-        dbname=config.get("db_name", "django_db"),
-        user=config.get("db_user", "django_user"),
-        password=config.get("db_password", "2137"),
-    )
-
+from auth import connect, authenticate
 
 def fetch_components(config):
-    conn = _connect(config)
+    email = config.get("user_email", "")
+    password = config.get("user_password", "")
+    if not email or not password:
+        raise RuntimeError("user_email and user_password must be set in kicad_sync.json")
+
+    conn = connect(config)
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    owner_id = authenticate(cur, email, password)
 
     cur.execute("""
         SELECT
@@ -36,7 +32,8 @@ def fetch_components(config):
         LEFT JOIN backend_main_component_category cat
             ON cat.id = m.category_id
         WHERE c.param_extraction_status = 2
-    """)
+          AND c.owner_id = %s
+    """, (owner_id,))
 
     comp_rows = cur.fetchall()
 
@@ -71,8 +68,8 @@ def fetch_components(config):
                 p.unit
             FROM backend_main_private_component_parameter p
             JOIN backend_main_private_component_object c ON c.id = p.parent_component_id
-            WHERE c.uuid = ANY(%s)
-        """, (list(comp_ids.keys()),))
+            WHERE c.owner_id = %s AND c.uuid = ANY(%s)
+        """, (owner_id, list(comp_ids.keys()),))
 
         for row in cur.fetchall():
             comp = comp_ids.get(str(row["comp_uuid"]))

@@ -4,6 +4,8 @@
     "db_name": "django_db",
     "db_user": "django_user",
     "db_password": "2137",
+    "user_email": "",
+    "user_password": "",
     "sync_interval_sec": 300,
     "exclude_fields": []
 }

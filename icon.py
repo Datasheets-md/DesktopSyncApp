@@ -3,7 +3,6 @@ from PyQt6.QtCore import Qt
 
 ICON_SIZE = 64
 
-
 def _make_icon(color, border_color):
     pix = QPixmap(ICON_SIZE, ICON_SIZE)
     pix.fill(Qt.GlobalColor.transparent)
@@ -26,14 +25,11 @@ def _make_icon(color, border_color):
 
     return QIcon(pix)
 
-
 def icon_ok():
     return _make_icon((76, 175, 80), (56, 142, 60))
 
-
 def icon_syncing():
     return _make_icon((255, 167, 38), (245, 124, 0))
-
 
 def icon_error():
     return _make_icon((229, 57, 53), (198, 40, 40))
