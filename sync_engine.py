@@ -6,7 +6,6 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from config import load_config
-from auth import login, get_valid_token
 from api import fetch_components, fetch_digikey
 from db import (
     STANDARD_COLUMNS,
@@ -88,14 +87,14 @@ def group_by_category(components):
     return groups
 
 
-def run_sync(server_url, token, config=None):
+def run_sync(server_url, config=None):
     config = config or load_config()
     fetch_dk = config.get("fetch_digikey", True)
     page_limit = config.get("page_limit", 100)
     exclude_fields = set(config.get("exclude_fields", []))
 
     print("Fetching components...")
-    components = fetch_components(server_url, token, page_limit)
+    components = fetch_components(server_url, page_limit)
     if not components:
         return {"tables": 0, "components": 0, "error": "No components found"}
 
@@ -107,7 +106,7 @@ def run_sync(server_url, token, config=None):
             if comp.get("digikey_status") == 2:
                 uuid = comp.get("uuid", "")
                 if uuid:
-                    dk = fetch_digikey(server_url, token, uuid)
+                    dk = fetch_digikey(server_url, uuid)
                     if dk:
                         digikey_cache[uuid] = dk
                         print(f"  DigiKey data for {uuid[:8]}...")
@@ -171,8 +170,6 @@ def run_sync(server_url, token, config=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Sync private components to local SQLite for KiCad")
-    parser.add_argument("--email", required=True)
-    parser.add_argument("--password", required=True)
     parser.add_argument("--server")
     parser.add_argument("--config")
     args = parser.parse_args()
@@ -183,11 +180,8 @@ def main():
         print("Error: set server_url in kicad_sync.json or use --server", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Logging in to {server_url}...")
-    token = login(server_url, args.email, args.password)
-    print("Login successful")
-
-    result = run_sync(server_url, token, config)
+    print(f"Connecting to {server_url}...")
+    result = run_sync(server_url, config)
     if result["error"]:
         print(f"Sync error: {result['error']}", file=sys.stderr)
         sys.exit(1)

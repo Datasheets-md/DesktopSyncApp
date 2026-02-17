@@ -4,13 +4,11 @@ import urllib.error
 import urllib.request
 
 
-def _api_get(server_url, token, endpoint):
+def _api_get(server_url, endpoint):
     url = server_url.rstrip("/") + "/" + endpoint.lstrip("/")
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "KiCadSync/1.0")
     req.add_header("Accept", "application/json")
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -23,12 +21,12 @@ def _api_get(server_url, token, endpoint):
         return None
 
 
-def fetch_components(server_url, token, page_limit=100):
+def fetch_components(server_url, page_limit=100):
     all_components = []
     page = 1
     while True:
         data = _api_get(
-            server_url, token,
+            server_url,
             f"api/priv_components/?page={page}&limit={page_limit}"
         )
         if not data:
@@ -56,8 +54,8 @@ def fetch_components(server_url, token, page_limit=100):
     return all_components
 
 
-def fetch_digikey(server_url, token, component_uuid):
+def fetch_digikey(server_url, component_uuid):
     return _api_get(
-        server_url, token,
+        server_url,
         f"api/priv_components/{component_uuid}/digikey/"
     )

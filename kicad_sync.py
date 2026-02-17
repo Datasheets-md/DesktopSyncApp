@@ -4,16 +4,11 @@ import sys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
-from PyQt6.QtWidgets import (
-    QApplication, QSystemTrayIcon, QMenu, QDialog,
-    QVBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFormLayout, QMessageBox,
-)
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import QTimer, QThread, pyqtSignal, Qt
+from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
 from config import load_config, save_config
-from auth import login, logout, get_valid_token, is_logged_in
 from sync_engine import run_sync
 from icon import icon_ok, icon_syncing, icon_error
 
@@ -22,76 +17,17 @@ class SyncWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, server_url, token, config):
+    def __init__(self, server_url, config):
         super().__init__()
         self.server_url = server_url
-        self.token = token
         self.config = config
 
     def run(self):
         try:
-            result = run_sync(self.server_url, self.token, self.config)
+            result = run_sync(self.server_url, self.config)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
-
-
-class LoginDialog(QDialog):
-    def __init__(self, server_url, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("KiCadSync Login")
-        self.setFixedSize(400, 220)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-
-        layout = QVBoxLayout(self)
-
-        form = QFormLayout()
-        self.server_input = QLineEdit(server_url)
-        self.email_input = QLineEdit()
-        self.email_input.setPlaceholderText("user@example.com")
-        self.password_input = QLineEdit()
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setPlaceholderText("password")
-        form.addRow("Server URL:", self.server_input)
-        form.addRow("Email:", self.email_input)
-        form.addRow("Password:", self.password_input)
-        layout.addLayout(form)
-
-        self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: red;")
-        layout.addWidget(self.status_label)
-
-        self.login_btn = QPushButton("Login")
-        self.login_btn.setDefault(True)
-        self.login_btn.clicked.connect(self._do_login)
-        layout.addWidget(self.login_btn)
-
-        self.result_token = None
-        self.result_server = None
-
-    def _do_login(self):
-        server = self.server_input.text().strip()
-        email = self.email_input.text().strip()
-        password = self.password_input.text()
-
-        if not server or not email or not password:
-            self.status_label.setText("All fields required")
-            return
-
-        self.login_btn.setEnabled(False)
-        self.status_label.setText("Logging in...")
-        self.status_label.setStyleSheet("color: gray;")
-        QApplication.processEvents()
-
-        try:
-            token = login(server, email, password)
-            self.result_token = token
-            self.result_server = server
-            self.accept()
-        except Exception as e:
-            self.status_label.setText(str(e)[:60])
-            self.status_label.setStyleSheet("color: red;")
-            self.login_btn.setEnabled(True)
 
 
 class KiCadSyncApp:
@@ -106,11 +42,8 @@ class KiCadSyncApp:
         self._build_tray()
         self._build_timer()
 
-        if is_logged_in():
-            self._set_state("ok", "Ready")
-            QTimer.singleShot(2000, self._on_sync_now)
-        else:
-            self._set_state("error", "Not logged in")
+        self._set_state("ok", "Ready")
+        QTimer.singleShot(2000, self._on_sync_now)
 
     @property
     def server_url(self):
@@ -134,14 +67,6 @@ class KiCadSyncApp:
         sync_action = QAction("Sync Now", menu)
         sync_action.triggered.connect(self._on_sync_now)
         menu.addAction(sync_action)
-
-        login_action = QAction("Login...", menu)
-        login_action.triggered.connect(self._on_login)
-        menu.addAction(login_action)
-
-        logout_action = QAction("Logout", menu)
-        logout_action.triggered.connect(self._on_logout)
-        menu.addAction(logout_action)
 
         menu.addSeparator()
 
@@ -176,15 +101,10 @@ class KiCadSyncApp:
         if self.sync_worker and self.sync_worker.isRunning():
             return
 
-        token = get_valid_token(self.server_url)
-        if not token:
-            self._set_state("error", "Not logged in")
-            return
-
         self._set_state("syncing", "Syncing...")
         self.config = load_config()
 
-        self.sync_worker = SyncWorker(self.server_url, token, self.config)
+        self.sync_worker = SyncWorker(self.server_url, self.config)
         self.sync_worker.finished.connect(self._on_sync_done)
         self.sync_worker.error.connect(self._on_sync_error)
         self.sync_worker.start()
@@ -197,19 +117,6 @@ class KiCadSyncApp:
 
     def _on_sync_error(self, msg):
         self._set_state("error", f"Error: {msg[:40]}")
-
-    def _on_login(self):
-        dlg = LoginDialog(self.server_url)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            if dlg.result_server != self.server_url:
-                self.config["server_url"] = dlg.result_server
-                save_config(self.config)
-            self._set_state("ok", "Logged in")
-            self._on_sync_now()
-
-    def _on_logout(self):
-        logout()
-        self._set_state("error", "Logged out")
 
     def _on_open_config(self):
         config_path = os.path.join(SCRIPT_DIR, "kicad_sync.json")
