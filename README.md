@@ -22,18 +22,7 @@ Syncs private electronic components from Datasheets.md to KiCad.
 
 Get the latest release for your platform from GitHub Releases.
 
-### Run from source
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run GUI
-python3 kicad_sync.py
-
-# Or command line
-python3 sync_engine.py --export-static
-```
+### Run the app
 
 ### Add to KiCad
 
@@ -52,7 +41,3 @@ python3 sync_engine.py --export-static
 The app connects to the Datasheets.md REST API (`https://datasheets.md`).
 
 User credentials are saved locally after first login.
-
-## License
-
-MIT
