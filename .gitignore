@@ -1,2 +1,6 @@
 __pycache__/
-__pycache__
+*.sqlite
+.token_store.json
+build/
+dist/
+*.spec

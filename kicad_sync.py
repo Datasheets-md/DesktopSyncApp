@@ -5,17 +5,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from PyQt6.QtWidgets import (
-    QApplication, QSystemTrayIcon, QMenu, QDialog,
-    QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QLineEdit, QPushButton, QFormLayout,
+    QFileDialog, QMessageBox,
 )
-from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from config import load_config, save_config
 from auth import connect, authenticate
-from api import fetch_components
 from sync_engine import run_sync
-from icon import icon_ok, icon_syncing, icon_error
 
 
 class SyncWorker(QThread):
@@ -34,283 +31,108 @@ class SyncWorker(QThread):
             self.error.emit(str(e))
 
 
-class FetchWorker(QThread):
-    finished = pyqtSignal(list)
-    error = pyqtSignal(str)
-
-    def __init__(self, config):
+class KiCadSyncWindow(QWidget):
+    def __init__(self):
         super().__init__()
-        self.config = config
+        self.setWindowTitle("KiCadSync")
+        self.setFixedSize(450, 250)
 
-    def run(self):
-        try:
-            components = fetch_components(self.config)
-            self.finished.emit(components)
-        except Exception as e:
-            self.error.emit(str(e))
-
-
-class LoginDialog(QDialog):
-    def __init__(self, config, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("KiCadSync Login")
-        self.setFixedSize(400, 200)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        self.config = load_config()
+        self.sync_worker = None
 
         layout = QVBoxLayout(self)
 
+        # Login form
         form = QFormLayout()
-        self.email_input = QLineEdit(config.get("user_email", ""))
+        self.email_input = QLineEdit(self.config.get("user_email", ""))
         self.email_input.setPlaceholderText("user@example.com")
-        self.password_input = QLineEdit(config.get("user_password", ""))
+        self.password_input = QLineEdit(self.config.get("user_password", ""))
         self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.password_input.setPlaceholderText("password")
         form.addRow("Email:", self.email_input)
         form.addRow("Password:", self.password_input)
         layout.addLayout(form)
 
+        # Output folder
+        folder_layout = QHBoxLayout()
+        self.folder_input = QLineEdit(self.config.get("output_dir", SCRIPT_DIR))
+        browse_btn = QPushButton("Browse...")
+        browse_btn.setFixedWidth(80)
+        browse_btn.clicked.connect(self._browse_folder)
+        folder_layout.addWidget(QLabel("Output folder:"))
+        folder_layout.addWidget(self.folder_input)
+        folder_layout.addWidget(browse_btn)
+        layout.addLayout(folder_layout)
+
+        # Status
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: red;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status_label)
 
-        self.login_btn = QPushButton("Login")
-        self.login_btn.setDefault(True)
-        self.login_btn.clicked.connect(self._do_login)
-        layout.addWidget(self.login_btn)
+        # Sync button
+        self.sync_btn = QPushButton("Sync")
+        self.sync_btn.setFixedHeight(40)
+        self.sync_btn.clicked.connect(self._on_sync)
+        layout.addWidget(self.sync_btn)
 
-        self.config = config
+    def _browse_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder", self.folder_input.text())
+        if folder:
+            self.folder_input.setText(folder)
 
-    def _do_login(self):
+    def _on_sync(self):
         email = self.email_input.text().strip()
         password = self.password_input.text()
+        output_dir = self.folder_input.text().strip()
 
         if not email or not password:
-            self.status_label.setText("All fields required")
-            return
-
-        self.login_btn.setEnabled(False)
-        self.status_label.setText("Checking credentials...")
-        self.status_label.setStyleSheet("color: gray;")
-        QApplication.processEvents()
-
-        try:
-            import psycopg2.extras
-            conn = connect(self.config)
-            cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
-            authenticate(cur, email, password)
-            cur.close()
-            conn.close()
-
-            self.config["user_email"] = email
-            self.config["user_password"] = password
-            save_config(self.config)
-            self.accept()
-        except Exception as e:
-            self.status_label.setText(str(e)[:60])
+            self.status_label.setText("Enter email and password")
             self.status_label.setStyleSheet("color: red;")
-            self.login_btn.setEnabled(True)
-
-
-class ComponentsDialog(QDialog):
-    COLUMNS = [
-        ("Part Number", "part_number"),
-        ("Manufacturer", "manufacturer"),
-        ("Category", "category"),
-        ("Package", "package"),
-        ("Description", "description"),
-        ("Symbol", "kicad_symbol"),
-        ("Footprint", "kicad_footprint"),
-    ]
-
-    def __init__(self, config, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("My Components")
-        self.resize(900, 500)
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-
-        layout = QVBoxLayout(self)
-
-        self.status_label = QLabel("Loading components...")
-        layout.addWidget(self.status_label)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(len(self.COLUMNS))
-        self.table.setHorizontalHeaderLabels([c[0] for c in self.COLUMNS])
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.verticalHeader().setVisible(False)
-        layout.addWidget(self.table)
-
-        btn_layout = QHBoxLayout()
-        self.refresh_btn = QPushButton("Refresh")
-        self.refresh_btn.clicked.connect(lambda: self._load(config))
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.refresh_btn)
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(self.close)
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
-
-        self.fetch_worker = None
-        self._load(config)
-
-    def _load(self, config):
-        self.refresh_btn.setEnabled(False)
-        self.status_label.setText("Loading components...")
-        self.fetch_worker = FetchWorker(config)
-        self.fetch_worker.finished.connect(self._on_loaded)
-        self.fetch_worker.error.connect(self._on_error)
-        self.fetch_worker.start()
-
-    def _on_loaded(self, components):
-        self.table.setRowCount(len(components))
-        for row_idx, comp in enumerate(components):
-            meta = (comp.get("metadata") or [{}])[0]
-            for col_idx, (_, key) in enumerate(self.COLUMNS):
-                value = meta.get(key, "")
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(value))
-
-        self.status_label.setText(f"{len(components)} components")
-        self.refresh_btn.setEnabled(True)
-
-    def _on_error(self, msg):
-        self.status_label.setText(f"Error: {msg[:60]}")
-        self.refresh_btn.setEnabled(True)
-
-
-class KiCadSyncApp:
-    def __init__(self):
-        self.app = QApplication(sys.argv)
-        self.app.setQuitOnLastWindowClosed(False)
-        self.app.setApplicationName("KiCadSync")
-
-        self.config = load_config()
-        self.sync_worker = None
-        self.components_dlg = None
-
-        self._build_tray()
-
-        if self.config.get("user_email") and self.config.get("user_password"):
-            self._set_state("ok", "Ready")
-        else:
-            self._set_state("error", "Not logged in")
-
-    def _build_tray(self):
-        self.tray = QSystemTrayIcon(icon_error(), self.app)
-
-        menu = QMenu()
-
-        self.status_action = QAction("KiCadSync")
-        self.status_action.setEnabled(False)
-        menu.addAction(self.status_action)
-
-        menu.addSeparator()
-
-        sync_action = QAction("Sync Now", menu)
-        sync_action.triggered.connect(self._on_sync_now)
-        menu.addAction(sync_action)
-
-        components_action = QAction("My Components...", menu)
-        components_action.triggered.connect(self._on_show_components)
-        menu.addAction(components_action)
-
-        menu.addSeparator()
-
-        login_action = QAction("Login...", menu)
-        login_action.triggered.connect(self._on_login)
-        menu.addAction(login_action)
-
-        logout_action = QAction("Logout", menu)
-        logout_action.triggered.connect(self._on_logout)
-        menu.addAction(logout_action)
-
-        menu.addSeparator()
-
-        config_action = QAction("Open Config", menu)
-        config_action.triggered.connect(self._on_open_config)
-        menu.addAction(config_action)
-
-        quit_action = QAction("Quit", menu)
-        quit_action.triggered.connect(self._on_quit)
-        menu.addAction(quit_action)
-
-        self.tray.setContextMenu(menu)
-        self.tray.setToolTip("KiCadSync")
-        self.tray.show()
-
-    def _set_state(self, state, message):
-        if state == "ok":
-            self.tray.setIcon(icon_ok())
-        elif state == "syncing":
-            self.tray.setIcon(icon_syncing())
-        else:
-            self.tray.setIcon(icon_error())
-        self.status_action.setText(message)
-        self.tray.setToolTip(f"KiCadSync - {message}")
-
-    def _on_sync_now(self):
-        if self.sync_worker and self.sync_worker.isRunning():
             return
 
-        self._set_state("syncing", "Syncing...")
-        self.config = load_config()
+        if not output_dir or not os.path.isdir(output_dir):
+            self.status_label.setText("Select a valid output folder")
+            self.status_label.setStyleSheet("color: red;")
+            return
+
+        # Save config
+        self.config["user_email"] = email
+        self.config["user_password"] = password
+        self.config["output_dir"] = output_dir
+        save_config(self.config)
+
+        self.sync_btn.setEnabled(False)
+        self.status_label.setText("Connecting...")
+        self.status_label.setStyleSheet("color: gray;")
 
         self.sync_worker = SyncWorker(self.config)
-        self.sync_worker.finished.connect(self._on_sync_done)
-        self.sync_worker.error.connect(self._on_sync_error)
+        self.sync_worker.finished.connect(self._on_done)
+        self.sync_worker.error.connect(self._on_error)
         self.sync_worker.start()
 
-    def _on_sync_done(self, result):
+    def _on_done(self, result):
+        self.sync_btn.setEnabled(True)
         if result.get("error"):
-            self._set_state("error", f"Error: {result['error']}")
+            self.status_label.setText(f"Error: {result['error']}")
+            self.status_label.setStyleSheet("color: red;")
         else:
-            self._set_state("ok", f"{result['components']} parts in {result['tables']} tables")
+            n = result["components"]
+            t = result["tables"]
+            self.status_label.setText(f"Done! {n} components in {t} categories")
+            self.status_label.setStyleSheet("color: green;")
 
-    def _on_sync_error(self, msg):
-        self._set_state("error", f"Error: {msg[:40]}")
-
-    def _on_show_components(self):
-        self.config = load_config()
-        self.components_dlg = ComponentsDialog(self.config)
-        self.components_dlg.show()
-
-    def _on_login(self):
-        dlg = LoginDialog(self.config)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self.config = load_config()
-            self._set_state("ok", "Logged in")
-
-    def _on_logout(self):
-        self.config["user_email"] = ""
-        self.config["user_password"] = ""
-        save_config(self.config)
-        self.config = load_config()
-        self._set_state("error", "Logged out")
-
-    def _on_open_config(self):
-        config_path = os.path.join(SCRIPT_DIR, "kicad_sync.json")
-        if sys.platform == "win32":
-            os.startfile(config_path)
-        elif sys.platform == "darwin":
-            os.system(f'open "{config_path}"')
-        else:
-            os.system(f'xdg-open "{config_path}" 2>/dev/null &')
-
-    def _on_quit(self):
-        if self.sync_worker and self.sync_worker.isRunning():
-            self.sync_worker.wait(3000)
-        self.tray.hide()
-        self.app.quit()
-
-    def run(self):
-        sys.exit(self.app.exec())
+    def _on_error(self, msg):
+        self.sync_btn.setEnabled(True)
+        self.status_label.setText(msg[:80])
+        self.status_label.setStyleSheet("color: red;")
 
 
 def main():
-    app = KiCadSyncApp()
-    app.run()
+    app = QApplication(sys.argv)
+    app.setApplicationName("KiCadSync")
+    window = KiCadSyncWindow()
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

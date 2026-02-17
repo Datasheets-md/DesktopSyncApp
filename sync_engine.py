@@ -78,6 +78,10 @@ def group_by_category(components):
 def run_sync(config=None):
     config = config or load_config()
     exclude_fields = set(config.get("exclude_fields", []))
+    output_dir = config.get("output_dir", SCRIPT_DIR)
+
+    db_path = os.path.join(output_dir, "kicadsync.sqlite")
+    dbl_path = os.path.join(output_dir, "kicadsync.kicad_dbl")
 
     print("Fetching components...")
     components = fetch_components(config)
@@ -104,7 +108,7 @@ def run_sync(config=None):
         if rows:
             table_rows[table_name] = rows
 
-    conn = open_db()
+    conn = open_db(db_path)
     cur = conn.cursor()
 
     existing_tables = get_existing_tables(cur)
@@ -130,8 +134,8 @@ def run_sync(config=None):
     conn.commit()
     conn.close()
 
-    write_dbl(active_tables, param_columns, exclude_fields)
-    print(f"Wrote kicadsync.kicad_dbl with {len(active_tables)} libraries")
+    write_dbl(active_tables, param_columns, exclude_fields, dbl_path)
+    print(f"Wrote {dbl_path} with {len(active_tables)} libraries")
 
     return {
         "tables": len(active_tables),

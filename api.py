@@ -68,7 +68,7 @@ def fetch_components(config):
                 p.unit
             FROM backend_main_private_component_parameter p
             JOIN backend_main_private_component_object c ON c.id = p.parent_component_id
-            WHERE c.owner_id = %s AND c.uuid = ANY(%s)
+            WHERE c.owner_id = %s AND c.uuid::text = ANY(%s)
         """, (owner_id, list(comp_ids.keys()),))
 
         for row in cur.fetchall():
