@@ -1,5 +1,6 @@
 import json
 import os
+import platform
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DBL_PATH = os.path.join(SCRIPT_DIR, "kicadsync.kicad_dbl")
@@ -59,6 +60,25 @@ def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
             },
         })
 
+    # Detect platform and set appropriate driver
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        # Check for homebrew installation paths
+        if os.path.exists("/opt/homebrew/lib/libsqlite3odbc.dylib"):
+            # Apple Silicon
+            driver_path = "/opt/homebrew/lib/libsqlite3odbc.dylib"
+        elif os.path.exists("/usr/local/lib/libsqlite3odbc.dylib"):
+            # Intel Mac
+            driver_path = "/usr/local/lib/libsqlite3odbc.dylib"
+        else:
+            # Fallback to driver name
+            driver_path = "SQLite3"
+        connection_string = f"Driver={{{driver_path}}};Database=${{CWD}}/kicadsync.sqlite"
+    elif system == "Windows":
+        connection_string = "Driver={SQLite3 ODBC Driver};Database=${CWD}/kicadsync.sqlite"
+    else:  # Linux
+        connection_string = "Driver={SQLite3};Database=${CWD}/kicadsync.sqlite"
+
     dbl = {
         "meta": {"version": 0},
         "name": "KiCadSync Library",
@@ -69,7 +89,7 @@ def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
             "username": "",
             "password": "",
             "timeout_seconds": 2,
-            "connection_string": "Driver={SQLite3 ODBC Driver};Database=${CWD}/kicadsync.sqlite",
+            "connection_string": connection_string,
         },
         "globally_unique_keys": True,
         "libraries": libraries,

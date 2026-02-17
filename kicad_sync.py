@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from config import load_config, save_config
 from auth import connect, authenticate
-from sync_engine import run_sync
+from sync_engine import run_sync, export_to_kicad_sym
 
 
 class SyncWorker(QThread):
@@ -26,6 +26,16 @@ class SyncWorker(QThread):
     def run(self):
         try:
             result = run_sync(self.config)
+
+            # Also export to KiCad symbol library format (no ODBC needed)
+            output_dir = self.config.get("output_dir", ".")
+            db_path = os.path.join(output_dir, "kicadsync.sqlite")
+            sym_path = os.path.join(output_dir, "kicadsync.kicad_sym")
+
+            if os.path.exists(db_path):
+                export_to_kicad_sym(db_path, sym_path)
+                result["symbol_library_created"] = True
+
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -118,7 +128,10 @@ class KiCadSyncWindow(QWidget):
         else:
             n = result["components"]
             t = result["tables"]
-            self.status_label.setText(f"Done! {n} components in {t} categories")
+            if result.get("symbol_library_created"):
+                self.status_label.setText(f"Done! {n} components in {t} categories. Library ready!")
+            else:
+                self.status_label.setText(f"Done! {n} components in {t} categories")
             self.status_label.setStyleSheet("color: green;")
 
     def _on_error(self, msg):

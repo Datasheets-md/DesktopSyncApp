@@ -1,6 +1,13 @@
 __pycache__/
 *.sqlite
+*.sqlite-shm
+*.sqlite-wal
 .token_store.json
 build/
 dist/
 *.spec
+venv/
+.claude/
+*.kicad_dbl
+*.kicad_sym
+.DS_Store
