@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import QTimer, QThread, pyqtSignal
 
-from config import load_config, save_config
+from config import load_config
 from sync_engine import run_sync
 from icon import icon_ok, icon_syncing, icon_error
 
@@ -17,14 +17,13 @@ class SyncWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, server_url, config):
+    def __init__(self, config):
         super().__init__()
-        self.server_url = server_url
         self.config = config
 
     def run(self):
         try:
-            result = run_sync(self.server_url, self.config)
+            result = run_sync(self.config)
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -44,10 +43,6 @@ class KiCadSyncApp:
 
         self._set_state("ok", "Ready")
         QTimer.singleShot(2000, self._on_sync_now)
-
-    @property
-    def server_url(self):
-        return self.config.get("server_url", "")
 
     @property
     def sync_interval(self):
@@ -104,7 +99,7 @@ class KiCadSyncApp:
         self._set_state("syncing", "Syncing...")
         self.config = load_config()
 
-        self.sync_worker = SyncWorker(self.server_url, self.config)
+        self.sync_worker = SyncWorker(self.config)
         self.sync_worker.finished.connect(self._on_sync_done)
         self.sync_worker.error.connect(self._on_sync_error)
         self.sync_worker.start()

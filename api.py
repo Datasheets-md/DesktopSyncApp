@@ -1,61 +1,90 @@
-import json
-import sys
-import urllib.error
-import urllib.request
+import psycopg2
+import psycopg2.extras
 
 
-def _api_get(server_url, endpoint):
-    url = server_url.rstrip("/") + "/" + endpoint.lstrip("/")
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", "KiCadSync/1.0")
-    req.add_header("Accept", "application/json")
-
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        print(f"  HTTP {e.code} fetching {url}", file=sys.stderr)
-        return None
-    except Exception as e:
-        print(f"  Error fetching {url}: {e}", file=sys.stderr)
-        return None
-
-
-def fetch_components(server_url, page_limit=100):
-    all_components = []
-    page = 1
-    while True:
-        data = _api_get(
-            server_url,
-            f"api/priv_components/?page={page}&limit={page_limit}"
-        )
-        if not data:
-            break
-
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            items = data.get("results", [])
-        else:
-            break
-
-        if not items:
-            break
-
-        ready = [c for c in items if c.get("processing_status") == 1]
-        all_components.extend(ready)
-        print(f"  Page {page}: {len(items)} components ({len(ready)} ready), total: {len(all_components)}")
-
-        if isinstance(data, dict) and data.get("next"):
-            page += 1
-        else:
-            break
-
-    return all_components
-
-
-def fetch_digikey(server_url, component_uuid):
-    return _api_get(
-        server_url,
-        f"api/priv_components/{component_uuid}/digikey/"
+def _connect(config):
+    return psycopg2.connect(
+        host=config.get("db_host", "localhost"),
+        port=config.get("db_port", 5432),
+        dbname=config.get("db_name", "django_db"),
+        user=config.get("db_user", "django_user"),
+        password=config.get("db_password", "2137"),
     )
+
+
+def fetch_components(config):
+    conn = _connect(config)
+    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+
+    cur.execute("""
+        SELECT
+            c.uuid AS uuid,
+            c.digikey_status,
+            c.param_extraction_status,
+            m.part_number,
+            m.description,
+            m.kicad_symbol,
+            m.kicad_footprint,
+            m.package,
+            mfr.name AS manufacturer,
+            cat.name AS category
+        FROM backend_main_private_component_object c
+        LEFT JOIN backend_main_private_component_metadata m
+            ON m.parent_component_id = c.id
+        LEFT JOIN backend_main_manufacturer mfr
+            ON mfr.id = m.manufacturer_id
+        LEFT JOIN backend_main_component_category cat
+            ON cat.id = m.category_id
+        WHERE c.param_extraction_status = 2
+    """)
+
+    comp_rows = cur.fetchall()
+
+    comp_ids = {}
+    components = []
+    for row in comp_rows:
+        uuid_str = str(row["uuid"])
+        comp = {
+            "uuid": uuid_str,
+            "digikey_status": row["digikey_status"],
+            "processing_status": 1,
+            "metadata": [{
+                "part_number": row["part_number"] or "",
+                "description": row["description"] or "",
+                "kicad_symbol": row["kicad_symbol"] or "",
+                "kicad_footprint": row["kicad_footprint"] or "",
+                "manufacturer": row["manufacturer"] or "",
+                "package": row["package"] or "",
+                "category": row["category"] or "",
+            }],
+            "parameters": [],
+        }
+        components.append(comp)
+        comp_ids[uuid_str] = comp
+
+    if comp_ids:
+        cur.execute("""
+            SELECT
+                c.uuid AS comp_uuid,
+                p.key,
+                p.value,
+                p.unit
+            FROM backend_main_private_component_parameter p
+            JOIN backend_main_private_component_object c ON c.id = p.parent_component_id
+            WHERE c.uuid = ANY(%s)
+        """, (list(comp_ids.keys()),))
+
+        for row in cur.fetchall():
+            comp = comp_ids.get(str(row["comp_uuid"]))
+            if comp:
+                comp["parameters"].append({
+                    "key": row["key"] or "",
+                    "value": row["value"] or "",
+                    "unit": row["unit"] or "",
+                })
+
+    cur.close()
+    conn.close()
+
+    print(f"  Fetched {len(components)} components from database")
+    return components

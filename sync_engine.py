@@ -6,7 +6,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from config import load_config
-from api import fetch_components, fetch_digikey
+from api import fetch_components
 from db import (
     STANDARD_COLUMNS,
     open_db,
@@ -21,11 +21,9 @@ from db import (
 from dbl import write_dbl
 
 
-def extract_component(component, server_url, digikey_data, param_names):
+def extract_component(component, param_names):
     metadata = component.get("metadata") or []
     meta = metadata[0] if metadata else {}
-
-    uuid = component.get("uuid", "")
 
     row = {
         "IPN": meta.get("part_number", ""),
@@ -38,17 +36,11 @@ def extract_component(component, server_url, digikey_data, param_names):
         "Package": meta.get("package", ""),
         "Category": meta.get("category", ""),
         "Datasheet": "",
-        "ComponentUrl": f"{server_url.rstrip('/')}/components/{uuid}" if uuid else "",
+        "ComponentUrl": "",
         "Stock": "",
         "Price_USD": "",
         "DigiKey_PN": "",
     }
-
-    if digikey_data:
-        row["Datasheet"] = digikey_data.get("datasheet_url", "")
-        row["Stock"] = str(digikey_data.get("quantity_available", ""))
-        row["Price_USD"] = str(digikey_data.get("unit_price", ""))
-        row["DigiKey_PN"] = digikey_data.get("digikey_part_number", "")
 
     for p in component.get("parameters") or []:
         key = p.get("key", "")
@@ -87,30 +79,16 @@ def group_by_category(components):
     return groups
 
 
-def run_sync(server_url, config=None):
+def run_sync(config=None):
     config = config or load_config()
-    fetch_dk = config.get("fetch_digikey", True)
-    page_limit = config.get("page_limit", 100)
     exclude_fields = set(config.get("exclude_fields", []))
 
     print("Fetching components...")
-    components = fetch_components(server_url, page_limit)
+    components = fetch_components(config)
     if not components:
         return {"tables": 0, "components": 0, "error": "No components found"}
 
     print(f"Fetched {len(components)} ready components")
-
-    digikey_cache = {}
-    if fetch_dk:
-        for comp in components:
-            if comp.get("digikey_status") == 2:
-                uuid = comp.get("uuid", "")
-                if uuid:
-                    dk = fetch_digikey(server_url, uuid)
-                    if dk:
-                        digikey_cache[uuid] = dk
-                        print(f"  DigiKey data for {uuid[:8]}...")
-        print(f"Fetched DigiKey data for {len(digikey_cache)} components")
 
     param_columns = discover_param_names(components)
     print(f"Discovered {len(param_columns)} unique parameters")
@@ -124,9 +102,7 @@ def run_sync(server_url, config=None):
     for table_name, comps in grouped.items():
         rows = []
         for comp in comps:
-            uuid = comp.get("uuid", "")
-            dk = digikey_cache.get(uuid)
-            row = extract_component(comp, server_url, dk, set(param_columns))
+            row = extract_component(comp, set(param_columns))
             if row["IPN"]:
                 rows.append(row)
         if rows:
@@ -170,18 +146,13 @@ def run_sync(server_url, config=None):
 
 def main():
     parser = argparse.ArgumentParser(description="Sync private components to local SQLite for KiCad")
-    parser.add_argument("--server")
     parser.add_argument("--config")
     args = parser.parse_args()
 
     config = load_config(args.config)
-    server_url = args.server or config.get("server_url", "")
-    if not server_url:
-        print("Error: set server_url in kicad_sync.json or use --server", file=sys.stderr)
-        sys.exit(1)
 
-    print(f"Connecting to {server_url}...")
-    result = run_sync(server_url, config)
+    print(f"Connecting to {config['db_host']}:{config['db_port']}/{config['db_name']}...")
+    result = run_sync(config)
     if result["error"]:
         print(f"Sync error: {result['error']}", file=sys.stderr)
         sys.exit(1)
