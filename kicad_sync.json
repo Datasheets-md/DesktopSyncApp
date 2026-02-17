@@ -1,0 +1,7 @@
+{
+    "server_url": "http://100.68.56.30:8005",
+    "sync_interval_sec": 300,
+    "fetch_digikey": true,
+    "page_limit": 100,
+    "exclude_fields": []
+}
