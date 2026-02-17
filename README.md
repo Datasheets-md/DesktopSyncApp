@@ -9,7 +9,7 @@ Django API --> KiCadSync app --> kicadsync.sqlite --ODBC--> KiCad
 ## Install
 
 ```bash
-pip install pystray Pillow
+pip install PyQt6
 ```
 
 Also install the SQLite3 ODBC driver for your OS:

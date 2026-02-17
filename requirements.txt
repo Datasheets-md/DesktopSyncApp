@@ -1,2 +1,1 @@
-pystray
-Pillow
+PyQt6
