@@ -5,7 +5,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "kicad_sync.json")
 
 DEFAULTS = {
-    "db_host": "localhost",
+    "db_host": "100.68.56.30",
     "db_port": 5432,
     "db_name": "django_db",
     "db_user": "django_user",

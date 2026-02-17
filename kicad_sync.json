@@ -1,5 +1,5 @@
 {
-    "db_host": "localhost",
+    "db_host": "100.68.56.30",
     "db_port": 5432,
     "db_name": "django_db",
     "db_user": "django_user",
