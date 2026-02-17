@@ -45,32 +45,13 @@ def _post_json(url, body):
 def login(server_url, email, password):
     url = server_url.rstrip("/") + "/api/auth/login"
     result = _post_json(url, {"email": email, "password": password})
-    access = result.get("access", "")
-    refresh = result.get("refresh", "")
+    access = result.get("access_token", "")
     if not access:
         raise RuntimeError("Login failed: no access token returned")
     _write_tokens({
         "access": access,
-        "refresh": refresh,
         "server_url": server_url,
     })
-    return access
-
-
-def refresh_token(server_url):
-    tokens = _read_tokens()
-    refresh = tokens.get("refresh", "")
-    if not refresh:
-        raise RuntimeError("No refresh token available - login required")
-    url = server_url.rstrip("/") + "/api/auth/refresh"
-    result = _post_json(url, {"refresh": refresh})
-    access = result.get("access", "")
-    if not access:
-        raise RuntimeError("Token refresh failed: no access token returned")
-    tokens["access"] = access
-    if result.get("refresh"):
-        tokens["refresh"] = result["refresh"]
-    _write_tokens(tokens)
     return access
 
 
@@ -81,7 +62,7 @@ def get_valid_token(server_url):
         return None
     exp = _parse_jwt_exp(access)
     if exp and time.time() > (exp - 60):
-        access = refresh_token(server_url)
+        return None  # token expired, re-login required
     return access
 
 
