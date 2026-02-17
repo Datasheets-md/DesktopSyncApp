@@ -1,87 +1,67 @@
-import psycopg2.extras
-from auth import connect, authenticate
+import requests
+from auth import login, API_BASE
+
 
 def fetch_components(config):
-    email = config.get("user_email", "")
-    password = config.get("user_password", "")
-    if not email or not password:
-        raise RuntimeError("user_email and user_password must be set in kicad_sync.json")
+    token = login(config)
+    api_url = config.get("api_url", API_BASE).rstrip("/")
 
-    conn = connect(config)
-    cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    headers = {"Authorization": f"Bearer {token}"}
 
-    owner_id = authenticate(cur, email, password)
-
-    cur.execute("""
-        SELECT
-            c.uuid AS uuid,
-            c.digikey_status,
-            c.param_extraction_status,
-            m.part_number,
-            m.description,
-            m.kicad_symbol,
-            m.kicad_footprint,
-            m.package,
-            mfr.name AS manufacturer,
-            cat.name AS category
-        FROM backend_main_private_component_object c
-        LEFT JOIN backend_main_private_component_metadata m
-            ON m.parent_component_id = c.id
-        LEFT JOIN backend_main_manufacturer mfr
-            ON mfr.id = m.manufacturer_id
-        LEFT JOIN backend_main_component_category cat
-            ON cat.id = m.category_id
-        WHERE c.param_extraction_status = 2
-          AND c.owner_id = %s
-    """, (owner_id,))
-
-    comp_rows = cur.fetchall()
-
-    comp_ids = {}
     components = []
-    for row in comp_rows:
-        uuid_str = str(row["uuid"])
-        comp = {
-            "uuid": uuid_str,
-            "digikey_status": row["digikey_status"],
-            "processing_status": 1,
-            "metadata": [{
-                "part_number": row["part_number"] or "",
-                "description": row["description"] or "",
-                "kicad_symbol": row["kicad_symbol"] or "",
-                "kicad_footprint": row["kicad_footprint"] or "",
-                "manufacturer": row["manufacturer"] or "",
-                "package": row["package"] or "",
-                "category": row["category"] or "",
-            }],
-            "parameters": [],
-        }
-        components.append(comp)
-        comp_ids[uuid_str] = comp
+    page = 1
 
-    if comp_ids:
-        cur.execute("""
-            SELECT
-                c.uuid AS comp_uuid,
-                p.key,
-                p.value,
-                p.unit
-            FROM backend_main_private_component_parameter p
-            JOIN backend_main_private_component_object c ON c.id = p.parent_component_id
-            WHERE c.owner_id = %s AND c.uuid::text = ANY(%s)
-        """, (owner_id, list(comp_ids.keys()),))
+    while True:
+        resp = requests.get(
+            f"{api_url}/api/priv_components",
+            headers=headers,
+            params={"page": page, "limit": 100},
+            timeout=60,
+        )
 
-        for row in cur.fetchall():
-            comp = comp_ids.get(str(row["comp_uuid"]))
-            if comp:
+        if resp.status_code == 401:
+            raise RuntimeError("Authentication expired")
+        if resp.status_code != 200:
+            raise RuntimeError(f"API error (HTTP {resp.status_code})")
+
+        data = resp.json()
+        raw_components = data.get("components", [])
+
+        for raw in raw_components:
+            if raw.get("param_extraction_status") != 2:
+                continue
+
+            metadata = raw.get("metadata") or []
+            meta = metadata[0] if metadata else {}
+
+            comp = {
+                "uuid": str(raw.get("uuid", "")),
+                "digikey_status": raw.get("digikey_status"),
+                "processing_status": 1,
+                "metadata": [{
+                    "part_number": meta.get("part_number") or "",
+                    "description": meta.get("description") or "",
+                    "kicad_symbol": meta.get("kicad_symbol") or "",
+                    "kicad_footprint": meta.get("kicad_footprint") or "",
+                    "manufacturer": meta.get("manufacturer") or "",
+                    "package": meta.get("package") or "",
+                    "category": meta.get("category") or "",
+                }],
+                "parameters": [],
+            }
+
+            for p in raw.get("parameters") or []:
                 comp["parameters"].append({
-                    "key": row["key"] or "",
-                    "value": row["value"] or "",
-                    "unit": row["unit"] or "",
+                    "key": p.get("key") or "",
+                    "value": p.get("value") or "",
+                    "unit": p.get("unit") or "",
                 })
 
-    cur.close()
-    conn.close()
+            components.append(comp)
 
-    print(f"  Fetched {len(components)} components from database")
+        if not data.get("has_next", False):
+            break
+        page += 1
+
+    print(f"  Fetched {len(components)} components from API")
     return components

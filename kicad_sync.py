@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from config import load_config, save_config
-from auth import connect, authenticate
 from sync_engine import run_sync, export_to_kicad_sym
 
 

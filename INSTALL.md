@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ```bash
-pip install pyinstaller PyQt6 psycopg2-binary
+pip install pyinstaller PyQt6 requests
 ```
 
 ## Quick build (all platforms)

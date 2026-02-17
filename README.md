@@ -5,7 +5,7 @@ Syncs private electronic components from Datasheets.md to KiCad.
 ## How it works
 
 1. User logs in with Datasheets.md credentials
-2. App fetches user's private components from PostgreSQL database
+2. App fetches user's private components via REST API
 3. Components are saved locally as SQLite database
 4. Exports to `.kicad_sym` format (KiCad symbol library)
 5. User adds the library to KiCad
@@ -49,10 +49,7 @@ python3 sync_engine.py --export-static
 
 ## Configuration
 
-The app connects to:
-- Host: 100.68.56.30
-- Port: 5432
-- Database: django_db
+The app connects to the Datasheets.md REST API (`https://datasheets.md`).
 
 User credentials are saved locally after first login.
 

@@ -283,7 +283,7 @@ def main():
 
     config = load_config(args.config)
 
-    print(f"Connecting to {config['db_host']}:{config['db_port']}/{config['db_name']}...")
+    print("Connecting to API...")
     result = run_sync(config)
     if result["error"]:
         print(f"Sync error: {result['error']}", file=sys.stderr)
