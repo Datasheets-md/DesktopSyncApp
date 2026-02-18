@@ -1,5 +1,5 @@
 @echo off
-echo Building KiCadSync for Windows...
+echo Building dBsync for Windows...
 
 REM Remove old builds
 if exist dist rmdir /s /q dist
@@ -9,15 +9,15 @@ REM Build with PyInstaller
 python -m PyInstaller ^
     --onefile ^
     --windowed ^
-    --name KiCadSync ^
-    --add-data "kicad_sync.json;." ^
+    --name dBsync ^
+    --add-data "dbsync.json;." ^
     --icon icon.ico ^
     --clean ^
-    kicad_sync.py
+    dbsync.py
 
 if %errorlevel% equ 0 (
     echo.
-    echo Build complete: dist\KiCadSync.exe
+    echo Build complete: dist\dBsync.exe
 ) else (
     echo.
     echo Build failed!

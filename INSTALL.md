@@ -20,12 +20,12 @@ python3 build_all.py
 ./build.sh
 ```
 
-Output: `dist/KiCadSync.app`
+Output: `dist/dBsync.app`
 
 To distribute:
 ```bash
 cd dist
-zip -r KiCadSync-macOS.zip KiCadSync.app
+zip -r dBsync-macOS.zip dBsync.app
 ```
 
 ### Windows
@@ -34,7 +34,7 @@ zip -r KiCadSync-macOS.zip KiCadSync.app
 build_windows.bat
 ```
 
-Output: `dist/KiCadSync.exe`
+Output: `dist/dBsync.exe`
 
 Single portable executable, ready to distribute.
 
@@ -44,7 +44,7 @@ Single portable executable, ready to distribute.
 ./build_linux.sh
 ```
 
-Output: `dist/KiCadSync` (binary) or `dist/KiCadSync.AppImage`
+Output: `dist/dBsync` (binary) or `dist/dBsync.AppImage`
 
 AppImage is recommended for distribution (works on any Linux).
 
@@ -52,19 +52,19 @@ AppImage is recommended for distribution (works on any Linux).
 
 ### macOS
 ```bash
-python3 -m PyInstaller --onedir --windowed --name KiCadSync --add-data "kicad_sync.json:." --clean kicad_sync.py
-rm -rf dist/KiCadSync
+python3 -m PyInstaller --onedir --windowed --name dBsync --add-data "dbsync.json:." --clean dbsync.py
+rm -rf dist/dBsync
 ```
 
 ### Windows
 ```bash
-python -m PyInstaller --onefile --windowed --name KiCadSync --add-data "kicad_sync.json;." --clean kicad_sync.py
+python -m PyInstaller --onefile --windowed --name dBsync --add-data "dbsync.json;." --clean dbsync.py
 ```
 
 ### Linux
 ```bash
-python3 -m PyInstaller --onefile --windowed --name KiCadSync --add-data "kicad_sync.json:." --clean kicad_sync.py
-chmod +x dist/KiCadSync
+python3 -m PyInstaller --onefile --windowed --name dBsync --add-data "dbsync.json:." --clean dbsync.py
+chmod +x dist/dBsync
 ```
 
 ## Troubleshooting
@@ -89,5 +89,5 @@ pip install PyQt6
 
 ### Linux: Permission denied
 ```bash
-chmod +x KiCadSync
+chmod +x dBsync
 ```

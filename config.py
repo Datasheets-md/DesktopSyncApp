@@ -2,7 +2,7 @@ import json
 import os
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_PATH = os.path.join(SCRIPT_DIR, "kicad_sync.json")
+CONFIG_PATH = os.path.join(SCRIPT_DIR, "dbsync.json")
 
 DEFAULTS = {
     "api_url": "https://datasheets.md",

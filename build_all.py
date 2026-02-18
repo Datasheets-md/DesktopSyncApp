@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Cross-platform build script for KiCadSync
+Cross-platform build script for dBsync
 Builds executable for the current platform
 """
 
@@ -16,8 +16,8 @@ def clean_build():
         shutil.rmtree('dist')
     if os.path.exists('build'):
         shutil.rmtree('build')
-    if os.path.exists('KiCadSync.spec'):
-        os.remove('KiCadSync.spec')
+    if os.path.exists('dBsync.spec'):
+        os.remove('dBsync.spec')
 
 def build_application():
     """Build application for current platform"""
@@ -27,10 +27,10 @@ def build_application():
     # Base PyInstaller command
     cmd = [
         sys.executable, '-m', 'PyInstaller',
-        '--name', 'KiCadSync',
-        '--add-data', f'kicad_sync.json{os.pathsep}.',
+        '--name', 'dBsync',
+        '--add-data', f'dbsync.json{os.pathsep}.',
         '--clean',
-        'kicad_sync.py'
+        'dbsync.py'
     ]
 
     if system == 'Darwin':  # macOS
@@ -64,26 +64,26 @@ def build_application():
     # Platform-specific post-processing
     if system == 'Darwin':
         # Remove extra directory on macOS
-        extra_dir = os.path.join('dist', 'KiCadSync')
+        extra_dir = os.path.join('dist', 'dBsync')
         if os.path.exists(extra_dir) and not extra_dir.endswith('.app'):
             shutil.rmtree(extra_dir)
-        print("\nBuild complete: dist/KiCadSync.app")
+        print("\nBuild complete: dist/dBsync.app")
 
     elif system == 'Windows':
-        print("\nBuild complete: dist/KiCadSync.exe")
+        print("\nBuild complete: dist/dBsync.exe")
 
     elif system == 'Linux':
         # Make executable on Linux
-        exe_path = os.path.join('dist', 'KiCadSync')
+        exe_path = os.path.join('dist', 'dBsync')
         if os.path.exists(exe_path):
             os.chmod(exe_path, 0o755)
-        print("\nBuild complete: dist/KiCadSync")
+        print("\nBuild complete: dist/dBsync")
         print("To create AppImage, run: ./build_linux.sh")
 
     return True
 
 def main():
-    print(f"KiCadSync Builder")
+    print(f"dBsync Builder")
     print(f"Platform: {platform.system()} {platform.machine()}")
     print(f"Python: {sys.version}")
     print("-" * 50)

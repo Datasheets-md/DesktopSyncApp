@@ -81,8 +81,8 @@ def run_sync(config=None):
     exclude_fields = set(config.get("exclude_fields", []))
     output_dir = config.get("output_dir", SCRIPT_DIR)
 
-    db_path = os.path.join(output_dir, "kicadsync.sqlite")
-    dbl_path = os.path.join(output_dir, "kicadsync.kicad_dbl")
+    db_path = os.path.join(output_dir, "dbsync.sqlite")
+    dbl_path = os.path.join(output_dir, "dbsync.kicad_dbl")
 
     print("Fetching components...")
     components = fetch_components(config)
@@ -158,7 +158,7 @@ def export_to_kicad_sym(db_path, output_path):
 
     # Start building S-expression format
     output = []
-    output.append('(kicad_symbol_lib (version 20211014) (generator "kicadsync")')
+    output.append('(kicad_symbol_lib (version 20211014) (generator "dbsync")')
 
     total_components = 0
 
@@ -294,8 +294,8 @@ def main():
     # Export to static format if requested
     if args.export_static:
         output_dir = config.get("output_dir", ".")
-        db_path = os.path.join(output_dir, "kicadsync.sqlite")
-        sym_path = os.path.join(output_dir, "kicadsync.kicad_sym")
+        db_path = os.path.join(output_dir, "dbsync.sqlite")
+        sym_path = os.path.join(output_dir, "dbsync.kicad_sym")
 
         print(f"\nExporting to static library...")
         export_to_kicad_sym(db_path, sym_path)
@@ -303,7 +303,7 @@ def main():
         print("You can add this file directly to KiCad - no ODBC drivers needed!")
     else:
         print("\nOptions:")
-        print("1. Use with ODBC: Add kicadsync_portable.kicad_dbl to KiCad (requires ODBC drivers)")
+        print("1. Use with ODBC: Add dbsync_portable.kicad_dbl to KiCad (requires ODBC drivers)")
         print("2. Export static: Run with --export-static flag to create .kicad_sym (no drivers needed)")
 
     print("\nRe-open the symbol chooser in KiCad to see updates.")

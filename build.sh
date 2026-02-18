@@ -12,7 +12,7 @@ else
     exit 1
 fi
 
-echo "Building KiCadSync..."
+echo "Building dBsync..."
 
 # Remove old build if exists
 rm -rf dist/
@@ -21,16 +21,16 @@ rm -rf build/
 $PYINSTALLER \
     --onedir \
     --windowed \
-    --name KiCadSync \
-    --add-data "kicad_sync.json:." \
+    --name dBsync \
+    --add-data "dbsync.json:." \
     --clean \
-    kicad_sync.py
+    dbsync.py
 
 if [ $? -eq 0 ]; then
     # Remove the directory, keep only the .app bundle
-    rm -rf dist/KiCadSync
+    rm -rf dist/dBsync
     echo ""
-    echo "Build complete: dist/KiCadSync.app"
+    echo "Build complete: dist/dBsync.app"
 else
     echo ""
     echo "Build failed!"

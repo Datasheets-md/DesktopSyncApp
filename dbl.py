@@ -3,7 +3,7 @@ import os
 import platform
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DBL_PATH = os.path.join(SCRIPT_DIR, "kicadsync.kicad_dbl")
+DBL_PATH = os.path.join(SCRIPT_DIR, "dbsync.kicad_dbl")
 
 def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
     exclude_fields = set(exclude_fields or [])
@@ -73,15 +73,15 @@ def generate_kicad_dbl(table_names, param_columns, exclude_fields=None):
         else:
             # Fallback to driver name
             driver_path = "SQLite3"
-        connection_string = f"Driver={{{driver_path}}};Database=${{CWD}}/kicadsync.sqlite"
+        connection_string = f"Driver={{{driver_path}}};Database=${{CWD}}/dbsync.sqlite"
     elif system == "Windows":
-        connection_string = "Driver={SQLite3 ODBC Driver};Database=${CWD}/kicadsync.sqlite"
+        connection_string = "Driver={SQLite3 ODBC Driver};Database=${CWD}/dbsync.sqlite"
     else:  # Linux
-        connection_string = "Driver={SQLite3};Database=${CWD}/kicadsync.sqlite"
+        connection_string = "Driver={SQLite3};Database=${CWD}/dbsync.sqlite"
 
     dbl = {
         "meta": {"version": 0},
-        "name": "KiCadSync Library",
+        "name": "dBsync Library",
         "description": "Components synced from private component library",
         "source": {
             "type": "odbc",

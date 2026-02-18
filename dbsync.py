@@ -28,8 +28,8 @@ class SyncWorker(QThread):
 
             # Also export to KiCad symbol library format (no ODBC needed)
             output_dir = self.config.get("output_dir", ".")
-            db_path = os.path.join(output_dir, "kicadsync.sqlite")
-            sym_path = os.path.join(output_dir, "kicadsync.kicad_sym")
+            db_path = os.path.join(output_dir, "dbsync.sqlite")
+            sym_path = os.path.join(output_dir, "dbsync.kicad_sym")
 
             if os.path.exists(db_path):
                 export_to_kicad_sym(db_path, sym_path)
@@ -40,10 +40,10 @@ class SyncWorker(QThread):
             self.error.emit(str(e))
 
 
-class KiCadSyncWindow(QWidget):
+class dBSyncWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("KiCadSync")
+        self.setWindowTitle("dBsync")
         self.setFixedSize(450, 250)
 
         self.config = load_config()
@@ -141,8 +141,8 @@ class KiCadSyncWindow(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("KiCadSync")
-    window = KiCadSyncWindow()
+    app.setApplicationName("dBsync")
+    window = dBSyncWindow()
     window.show()
     sys.exit(app.exec())
 

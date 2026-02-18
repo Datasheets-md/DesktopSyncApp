@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Building KiCadSync for Linux..."
+echo "Building dBsync for Linux..."
 
 # Remove old builds
 rm -rf dist/
@@ -18,59 +18,59 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     $PYINSTALLER \
         --onefile \
         --windowed \
-        --name KiCadSync \
-        --add-data "kicad_sync.json:." \
+        --name dBsync \
+        --add-data "dbsync.json:." \
         --clean \
-        kicad_sync.py
+        dbsync.py
 
     if [ $? -eq 0 ]; then
         # Make executable
-        chmod +x dist/KiCadSync
+        chmod +x dist/dBsync
 
         # Optional: Create AppImage
         if command -v appimagetool &> /dev/null; then
             echo "Creating AppImage..."
 
             # Create AppDir structure
-            mkdir -p dist/KiCadSync.AppDir/usr/bin
-            mkdir -p dist/KiCadSync.AppDir/usr/share/applications
-            mkdir -p dist/KiCadSync.AppDir/usr/share/icons/hicolor/256x256/apps
+            mkdir -p dist/dBsync.AppDir/usr/bin
+            mkdir -p dist/dBsync.AppDir/usr/share/applications
+            mkdir -p dist/dBsync.AppDir/usr/share/icons/hicolor/256x256/apps
 
             # Copy executable
-            cp dist/KiCadSync dist/KiCadSync.AppDir/usr/bin/
+            cp dist/dBsync dist/dBsync.AppDir/usr/bin/
 
             # Create desktop file
-            cat > dist/KiCadSync.AppDir/KiCadSync.desktop <<EOF
+            cat > dist/dBsync.AppDir/dBsync.desktop <<EOF
 [Desktop Entry]
-Name=KiCadSync
-Exec=KiCadSync
-Icon=kicadsync
+Name=dBsync
+Exec=dBsync
+Icon=dbsync
 Type=Application
 Categories=Development;Engineering;
 Comment=Sync components from Datasheets.md to KiCad
 EOF
 
             # Copy desktop file
-            cp dist/KiCadSync.AppDir/KiCadSync.desktop dist/KiCadSync.AppDir/usr/share/applications/
+            cp dist/dBsync.AppDir/dBsync.desktop dist/dBsync.AppDir/usr/share/applications/
 
             # Create AppRun
-            cat > dist/KiCadSync.AppDir/AppRun <<'EOF'
+            cat > dist/dBsync.AppDir/AppRun <<'EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "${0}")")"
-exec "${HERE}/usr/bin/KiCadSync" "$@"
+exec "${HERE}/usr/bin/dBsync" "$@"
 EOF
-            chmod +x dist/KiCadSync.AppDir/AppRun
+            chmod +x dist/dBsync.AppDir/AppRun
 
             # Build AppImage
-            ARCH=x86_64 appimagetool dist/KiCadSync.AppDir dist/KiCadSync.AppImage
+            ARCH=x86_64 appimagetool dist/dBsync.AppDir dist/dBsync.AppImage
 
             echo ""
             echo "Build complete!"
-            echo "Executable: dist/KiCadSync"
-            echo "AppImage: dist/KiCadSync.AppImage"
+            echo "Executable: dist/dBsync"
+            echo "AppImage: dist/dBsync.AppImage"
         else
             echo ""
-            echo "Build complete: dist/KiCadSync"
+            echo "Build complete: dist/dBsync"
             echo "To create AppImage, install appimagetool:"
             echo "  wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
             echo "  chmod +x appimagetool-x86_64.AppImage"

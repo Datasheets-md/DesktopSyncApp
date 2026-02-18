@@ -7,7 +7,7 @@ def login(config):
     email = config.get("user_email", "")
     password = config.get("user_password", "")
     if not email or not password:
-        raise RuntimeError("user_email and user_password must be set in kicad_sync.json")
+        raise RuntimeError("user_email and user_password must be set in dbsync.json")
 
     api_url = config.get("api_url", API_BASE).rstrip("/")
     url = f"{api_url}/api/auth/login"

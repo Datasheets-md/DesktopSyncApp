@@ -1,4 +1,4 @@
-# KiCadSync
+# dBsync
 
 Syncs private electronic components from Datasheets.md to KiCad.
 
@@ -29,7 +29,7 @@ Get the latest release for your platform from GitHub Releases.
 pip install -r requirements.txt
 
 # Run GUI
-python3 kicad_sync.py
+python3 dbsync.py
 
 # Or command line
 python3 sync_engine.py --export-static
@@ -37,15 +37,15 @@ python3 sync_engine.py --export-static
 
 ### Add to KiCad
 
-1. Sync your components (creates `kicadsync.kicad_sym`)
+1. Sync your components (creates `dbsync.kicad_sym`)
 2. In KiCad: Preferences → Manage Symbol Libraries
-3. Add existing library → Select `kicadsync.kicad_sym`
+3. Add existing library → Select `dbsync.kicad_sym`
 
 ## Files created
 
-- `kicadsync.sqlite` - Local database
-- `kicadsync.kicad_sym` - KiCad library file
-- `kicad_sync.json` - Configuration
+- `dbsync.sqlite` - Local database
+- `dbsync.kicad_sym` - KiCad library file
+- `dbsync.json` - Configuration
 
 ## Configuration
 

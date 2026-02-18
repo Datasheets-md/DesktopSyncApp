@@ -2,7 +2,7 @@ import os
 import sqlite3
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(SCRIPT_DIR, "kicadsync.sqlite")
+DB_PATH = os.path.join(SCRIPT_DIR, "dbsync.sqlite")
 
 KEY_COLUMN = "IPN"
 
