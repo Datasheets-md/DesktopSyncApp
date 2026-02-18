@@ -52,7 +52,3 @@ python3 sync_engine.py --export-static
 The app connects to the Datasheets.md REST API (`https://datasheets.md`).
 
 User credentials are saved locally after first login.
-
-## License
-
-MIT
