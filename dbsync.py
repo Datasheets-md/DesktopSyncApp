@@ -65,7 +65,8 @@ class dBSyncWindow(QWidget):
 
         # Output folder
         folder_layout = QHBoxLayout()
-        self.folder_input = QLineEdit(self.config.get("output_dir", SCRIPT_DIR))
+        self.folder_input = QLineEdit("")  # Always start with empty folder
+        self.folder_input.setPlaceholderText("Select output folder...")
         browse_btn = QPushButton("Browse...")
         browse_btn.setFixedWidth(80)
         browse_btn.clicked.connect(self._browse_folder)
@@ -92,7 +93,9 @@ class dBSyncWindow(QWidget):
         layout.addWidget(version_label)
 
     def _browse_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select output folder", self.folder_input.text())
+        # Start from current directory if no folder is selected
+        start_dir = self.folder_input.text() or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(self, "Select output folder", start_dir)
         if folder:
             self.folder_input.setText(folder)
 
@@ -111,11 +114,17 @@ class dBSyncWindow(QWidget):
             self.status_label.setStyleSheet("color: red;")
             return
 
-        # Save config
+        # Save config (but don't save output_dir to file)
         self.config["user_email"] = email
         self.config["user_password"] = password
+
+        # Set output_dir temporarily for this sync session only
         self.config["output_dir"] = output_dir
-        save_config(self.config)
+
+        # Save config without output_dir
+        config_to_save = self.config.copy()
+        config_to_save.pop("output_dir", None)
+        save_config(config_to_save)
 
         self.sync_btn.setEnabled(False)
         self.status_label.setText("Connecting...")

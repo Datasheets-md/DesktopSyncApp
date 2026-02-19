@@ -3,6 +3,5 @@
     "sync_interval_sec": 300,
     "exclude_fields": [],
     "user_email": "mika@gmail.com",
-    "user_password": "mika@gmail.com",
-    "output_dir": "/Users/mihailmikailov/Desktop/KiCadSync"
+    "user_password": "mika@gmail.com"
 }

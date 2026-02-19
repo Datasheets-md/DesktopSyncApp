@@ -18,14 +18,27 @@ if exist dist rmdir /s /q dist
 if exist build rmdir /s /q build
 
 REM Build with PyInstaller
-python -m PyInstaller ^
-    --onefile ^
-    --windowed ^
-    --name dBsync ^
-    --add-data "dbsync.json;." ^
-    --icon icon.ico ^
-    --clean ^
-    dbsync.py
+REM Check if icon exists
+if exist icon.ico (
+    echo Using icon.ico
+    python -m PyInstaller ^
+        --onefile ^
+        --windowed ^
+        --name dBsync ^
+        --add-data "dbsync.json;." ^
+        --icon icon.ico ^
+        --clean ^
+        dbsync.py
+) else (
+    echo No icon.ico found, building without icon
+    python -m PyInstaller ^
+        --onefile ^
+        --windowed ^
+        --name dBsync ^
+        --add-data "dbsync.json;." ^
+        --clean ^
+        dbsync.py
+)
 
 if %errorlevel% equ 0 (
     echo.
