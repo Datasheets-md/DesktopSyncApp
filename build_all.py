@@ -88,6 +88,19 @@ def main():
     print(f"Python: {sys.version}")
     print("-" * 50)
 
+    # Ask for version update
+    try:
+        from version import __version__
+        print(f"Current version: {__version__}")
+    except:
+        print("Current version: unknown")
+
+    new_version = input("Enter new version (press Enter to keep current): ").strip()
+    if new_version:
+        import set_version
+        set_version.set_version(new_version)
+    print("")
+
     # Clean old builds
     print("Cleaning old builds...")
     clean_build()

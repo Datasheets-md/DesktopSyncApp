@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from config import load_config, save_config
 from sync_engine import run_sync, export_to_kicad_sym
+from version import __version__, __app_name__
 
 
 class SyncWorker(QThread):
@@ -43,8 +44,8 @@ class SyncWorker(QThread):
 class dBSyncWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("dBsync")
-        self.setFixedSize(450, 250)
+        self.setWindowTitle(f"{__app_name__} v{__version__}")
+        self.setFixedSize(450, 280)
 
         self.config = load_config()
         self.sync_worker = None
@@ -83,6 +84,12 @@ class dBSyncWindow(QWidget):
         self.sync_btn.setFixedHeight(40)
         self.sync_btn.clicked.connect(self._on_sync)
         layout.addWidget(self.sync_btn)
+
+        # Version label
+        version_label = QLabel(f"Version {__version__}")
+        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        version_label.setStyleSheet("color: gray; font-size: 10px;")
+        layout.addWidget(version_label)
 
     def _browse_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select output folder", self.folder_input.text())
@@ -141,7 +148,7 @@ class dBSyncWindow(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("dBsync")
+    app.setApplicationName(__app_name__)
     window = dBSyncWindow()
     window.show()
     sys.exit(app.exec())

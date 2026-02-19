@@ -1,7 +1,8 @@
 {
     "api_url": "https://datasheets.md",
-    "user_email": "",
-    "user_password": "",
     "sync_interval_sec": 300,
-    "exclude_fields": []
+    "exclude_fields": [],
+    "user_email": "mika@gmail.com",
+    "user_password": "mika@gmail.com",
+    "output_dir": "/Users/mihailmikailov/Desktop/KiCadSync"
 }
