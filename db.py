@@ -24,19 +24,32 @@ STANDARD_COLUMNS = [
 ]
 
 def sanitize_column_name(name):
-    name = name.replace("/", "_").replace("\\", "_").replace("-", "_")
-    name = name.replace(" ", "_")
-    name = "".join(c if c.isalnum() or c == "_" else "_" for c in name)
-    while "__" in name:
-        name = name.replace("__", "_")
-    return name.strip("_")
+    name = name.replace('"', '')
+    name = name.replace("'", '')
+    name = name.replace('\n', ' ')
+    name = name.replace('\r', '')
+    name = name.replace('\t', ' ')
+    return name.strip()
 
 def sanitize_table_name(name):
     if "\u2192" in name:
         name = name.split("\u2192")[-1].strip()
     elif "/" in name:
         name = name.split("/")[-1].strip()
-    return sanitize_column_name(name)
+
+    name = name.replace("/", "_").replace("\\", "_")
+    name = name.replace(" ", "_").replace("-", "_")
+    name = name.replace("(", "").replace(")", "")
+    name = name.replace("[", "").replace("]", "")
+    name = name.replace("{", "").replace("}", "")
+    name = name.replace(".", "_").replace(",", "_")
+    name = name.replace('"', '').replace("'", '')
+    name = name.replace('\n', '_').replace('\r', '').replace('\t', '_')
+
+    while "__" in name:
+        name = name.replace("__", "_")
+
+    return name.strip("_")
 
 def open_db(path=None):
     path = path or DB_PATH
@@ -45,6 +58,12 @@ def open_db(path=None):
     return conn
 
 def ensure_table(cur, table_name, all_columns):
+    unique_columns = list(dict.fromkeys(all_columns))
+    if len(unique_columns) != len(all_columns):
+        duplicates = [c for c in all_columns if all_columns.count(c) > 1]
+        print(f"Warning: Duplicate columns detected in table '{table_name}': {set(duplicates)}")
+        all_columns = unique_columns
+
     col_defs = ", ".join(f'"{c}" TEXT' for c in all_columns)
     target_schema = f'CREATE TABLE "{table_name}" ({col_defs}, PRIMARY KEY("{KEY_COLUMN}"))'
 

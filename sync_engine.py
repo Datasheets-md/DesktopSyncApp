@@ -59,24 +59,29 @@ def extract_component(component, param_names):
 
 def discover_param_names(components):
     names = set()
-    seen_sanitized = {}  # Track original -> sanitized mapping
 
     for comp in components:
         for p in comp.get("parameters") or []:
             key = p.get("key", "")
+            if not key:
+                continue
+
             col = sanitize_column_name(key)
 
-            if col and col not in STANDARD_COLUMNS:
-                # Check if we've seen this sanitized name before from a different original key
-                if col in seen_sanitized and seen_sanitized[col] != key:
-                    # Found duplicate after sanitization, skip it
-                    print(f"Warning: Parameter '{key}' sanitizes to '{col}' which already exists (from '{seen_sanitized[col]}'). Skipping duplicate.")
-                    continue
+            if not col:
+                continue
 
-                seen_sanitized[col] = key
-                names.add(col)
+            # Skip if it conflicts with standard columns
+            if col in STANDARD_COLUMNS:
+                print(f"Warning: Parameter '{key}' conflicts with standard column '{col}'. Skipping.")
+                continue
 
-    return sorted(names)
+            names.add(col)
+
+    result = sorted(list(names))
+    print(f"  Unique parameter columns: {len(result)}")
+
+    return result
 
 def group_by_category(components):
     groups = {}
@@ -113,8 +118,8 @@ def run_sync(config=None):
     grouped = group_by_category(components)
     print(f"Grouped into {len(grouped)} categories")
 
-    # Ensure no duplicate columns: remove any duplicates while preserving order
-    all_columns = list(dict.fromkeys(list(STANDARD_COLUMNS) + param_columns))
+    # Combine standard columns and parameter columns (no duplicates expected with minimal sanitization)
+    all_columns = list(STANDARD_COLUMNS) + param_columns
 
     table_rows = {}
     for table_name, comps in grouped.items():
