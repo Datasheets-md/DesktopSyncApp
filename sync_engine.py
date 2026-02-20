@@ -17,6 +17,7 @@ from db import (
     get_existing_tables,
     sanitize_column_name,
     sanitize_table_name,
+    _dedup_columns,
 )
 from dbl import write_dbl
 
@@ -124,8 +125,8 @@ def run_sync(config=None):
     grouped = group_by_category(components)
     print(f"Grouped into {len(grouped)} categories")
 
-    # Combine standard columns and parameter columns, dedup to prevent SQLite errors
-    all_columns = list(dict.fromkeys(list(STANDARD_COLUMNS) + param_columns))
+    # Combine standard columns and parameter columns, case-insensitive dedup
+    all_columns = _dedup_columns(list(STANDARD_COLUMNS) + param_columns)
 
     table_rows = {}
     for table_name, comps in grouped.items():

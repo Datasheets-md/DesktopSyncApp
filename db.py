@@ -61,12 +61,21 @@ def open_db(path=None):
     conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
+def _dedup_columns(columns):
+    seen = {}
+    result = []
+    for col in columns:
+        key = col.lower()
+        if key not in seen:
+            seen[key] = col
+            result.append(col)
+        else:
+            print(f"  Dedup: dropping '{col}' (duplicate of '{seen[key]}')")
+    return result
+
+
 def ensure_table(cur, table_name, all_columns):
-    unique_columns = list(dict.fromkeys(all_columns))
-    if len(unique_columns) != len(all_columns):
-        duplicates = [c for c in all_columns if all_columns.count(c) > 1]
-        print(f"Warning: Duplicate columns detected in table '{table_name}': {set(duplicates)}")
-        all_columns = unique_columns
+    all_columns = _dedup_columns(all_columns)
 
     col_defs = ", ".join(f'"{c}" TEXT' for c in all_columns)
     target_schema = f'CREATE TABLE "{table_name}" ({col_defs}, PRIMARY KEY("{KEY_COLUMN}"))'
@@ -85,12 +94,17 @@ def ensure_table(cur, table_name, all_columns):
         cur.execute(target_schema)
 
     cur.execute(f'PRAGMA table_info("{table_name}")')
-    existing = {r[1] for r in cur.fetchall()}
+    existing_lower = {r[1].lower() for r in cur.fetchall()}
     for col in all_columns:
-        if col not in existing:
-            cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" TEXT DEFAULT ""')
+        if col.lower() not in existing_lower:
+            try:
+                cur.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col}" TEXT DEFAULT ""')
+            except sqlite3.OperationalError as e:
+                print(f"  ALTER TABLE skip: {e}")
+
 
 def upsert_rows(cur, table_name, columns, rows):
+    columns = _dedup_columns(columns)
     placeholders = ", ".join("?" for _ in columns)
     col_names = ", ".join(f'"{c}"' for c in columns)
     sql = f'INSERT OR REPLACE INTO "{table_name}" ({col_names}) VALUES ({placeholders})'
