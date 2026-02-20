@@ -58,7 +58,9 @@ def extract_component(component, param_names):
     return row
 
 def discover_param_names(components):
-    names = set()
+    # Case-insensitive set for dedup and standard column conflict detection
+    standard_lower = {c.lower() for c in STANDARD_COLUMNS}
+    seen_lower = {}  # lowercase -> first-seen original name
 
     for comp in components:
         for p in comp.get("parameters") or []:
@@ -71,14 +73,18 @@ def discover_param_names(components):
             if not col:
                 continue
 
-            # Skip if it conflicts with standard columns
-            if col in STANDARD_COLUMNS:
-                print(f"Warning: Parameter '{key}' conflicts with standard column '{col}'. Skipping.")
+            col_lower = col.lower()
+
+            # Skip if it conflicts with standard columns (case-insensitive)
+            if col_lower in standard_lower:
+                print(f"Warning: Parameter '{key}' conflicts with standard column. Skipping.")
                 continue
 
-            names.add(col)
+            # Keep first-seen casing, skip case-insensitive duplicates
+            if col_lower not in seen_lower:
+                seen_lower[col_lower] = col
 
-    result = sorted(list(names))
+    result = sorted(seen_lower.values())
     print(f"  Unique parameter columns: {len(result)}")
 
     return result
@@ -118,8 +124,8 @@ def run_sync(config=None):
     grouped = group_by_category(components)
     print(f"Grouped into {len(grouped)} categories")
 
-    # Combine standard columns and parameter columns (no duplicates expected with minimal sanitization)
-    all_columns = list(STANDARD_COLUMNS) + param_columns
+    # Combine standard columns and parameter columns, dedup to prevent SQLite errors
+    all_columns = list(dict.fromkeys(list(STANDARD_COLUMNS) + param_columns))
 
     table_rows = {}
     for table_name, comps in grouped.items():

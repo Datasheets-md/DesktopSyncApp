@@ -1,5 +1,7 @@
 import os
+import re
 import sqlite3
+import unicodedata
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "dbsync.sqlite")
@@ -24,11 +26,13 @@ STANDARD_COLUMNS = [
 ]
 
 def sanitize_column_name(name):
+    # Normalize Unicode (e.g. non-breaking spaces, accented chars)
+    name = unicodedata.normalize("NFKC", name)
+    # Remove quotes
     name = name.replace('"', '')
     name = name.replace("'", '')
-    name = name.replace('\n', ' ')
-    name = name.replace('\r', '')
-    name = name.replace('\t', ' ')
+    # Replace all whitespace characters (tabs, newlines, NBSP, etc.) with regular space
+    name = re.sub(r'\s+', ' ', name)
     return name.strip()
 
 def sanitize_table_name(name):
