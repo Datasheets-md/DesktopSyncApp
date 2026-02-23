@@ -31,6 +31,7 @@ $PYINSTALLER \
     --windowed \
     --name dBsync \
     --add-data "dbsync.json:." \
+    --icon icon-windowed.icns \
     --clean \
     dbsync.py
 

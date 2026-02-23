@@ -36,17 +36,20 @@ def build_application():
     if system == 'Darwin':  # macOS
         print("Building for macOS...")
         cmd.extend(['--onedir', '--windowed'])
+        if os.path.exists('icon-windowed.icns'):
+            cmd.extend(['--icon', 'icon-windowed.icns'])
 
     elif system == 'Windows':
         print("Building for Windows...")
         cmd.extend(['--onefile', '--windowed'])
-        # Add icon if exists
         if os.path.exists('icon.ico'):
             cmd.extend(['--icon', 'icon.ico'])
 
     elif system == 'Linux':
         print("Building for Linux...")
         cmd.extend(['--onefile', '--windowed'])
+        if os.path.exists('icon.png'):
+            cmd.extend(['--icon', 'icon.png'])
 
     else:
         print(f"Unsupported platform: {system}")

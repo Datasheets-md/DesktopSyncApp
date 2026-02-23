@@ -61,6 +61,12 @@ EOF
             # Copy desktop file
             cp dist/dBsync.AppDir/dBsync.desktop dist/dBsync.AppDir/usr/share/applications/
 
+            # Copy icon
+            if [ -f icon.png ]; then
+                cp icon.png dist/dBsync.AppDir/dbsync.png
+                cp icon.png dist/dBsync.AppDir/usr/share/icons/hicolor/256x256/apps/dbsync.png
+            fi
+
             # Create AppRun
             cat > dist/dBsync.AppDir/AppRun <<'EOF'
 #!/bin/bash
