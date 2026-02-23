@@ -35,6 +35,11 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         # Make executable
         chmod +x dist/dBsync
 
+        # Rename with version
+        VERSION=$(python3 -c "from version import __version__; print(__version__)" 2>/dev/null || echo "0.0.0")
+        mv dist/dBsync "dist/dBsync-${VERSION}"
+        chmod +x "dist/dBsync-${VERSION}"
+
         # Optional: Create AppImage
         if command -v appimagetool &> /dev/null; then
             echo "Creating AppImage..."
@@ -44,8 +49,8 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
             mkdir -p dist/dBsync.AppDir/usr/share/applications
             mkdir -p dist/dBsync.AppDir/usr/share/icons/hicolor/256x256/apps
 
-            # Copy executable
-            cp dist/dBsync dist/dBsync.AppDir/usr/bin/
+            # Copy executable (use versioned name as source)
+            cp "dist/dBsync-${VERSION}" dist/dBsync.AppDir/usr/bin/dBsync
 
             # Create desktop file
             cat > dist/dBsync.AppDir/dBsync.desktop <<EOF
@@ -76,15 +81,15 @@ EOF
             chmod +x dist/dBsync.AppDir/AppRun
 
             # Build AppImage
-            ARCH=x86_64 appimagetool dist/dBsync.AppDir dist/dBsync.AppImage
+            ARCH=x86_64 appimagetool dist/dBsync.AppDir "dist/dBsync-${VERSION}.AppImage"
 
             echo ""
             echo "Build complete!"
-            echo "Executable: dist/dBsync"
-            echo "AppImage: dist/dBsync.AppImage"
+            echo "Executable: dist/dBsync-${VERSION}"
+            echo "AppImage: dist/dBsync-${VERSION}.AppImage"
         else
             echo ""
-            echo "Build complete: dist/dBsync"
+            echo "Build complete: dist/dBsync-${VERSION}"
             echo "To create AppImage, install appimagetool:"
             echo "  wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
             echo "  chmod +x appimagetool-x86_64.AppImage"

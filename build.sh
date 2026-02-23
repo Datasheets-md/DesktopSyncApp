@@ -38,8 +38,12 @@ $PYINSTALLER \
 if [ $? -eq 0 ]; then
     # Remove the directory, keep only the .app bundle
     rm -rf dist/dBsync
+
+    # Rename with version
+    VERSION=$(python3 -c "from version import __version__; print(__version__)" 2>/dev/null || echo "0.0.0")
+    mv dist/dBsync.app "dist/dBsync-${VERSION}.app"
     echo ""
-    echo "Build complete: dist/dBsync.app"
+    echo "Build complete: dist/dBsync-${VERSION}.app"
 else
     echo ""
     echo "Build failed!"

@@ -41,8 +41,16 @@ if exist icon.ico (
 )
 
 if %errorlevel% equ 0 (
-    echo.
-    echo Build complete: dist\dBsync.exe
+    REM Get version and rename
+    for /f "delims=" %%v in ('python -c "from version import __version__; print(__version__)" 2^>nul') do set APP_VERSION=%%v
+    if not "%APP_VERSION%"=="" (
+        rename dist\dBsync.exe dBsync-%APP_VERSION%.exe
+        echo.
+        echo Build complete: dist\dBsync-%APP_VERSION%.exe
+    ) else (
+        echo.
+        echo Build complete: dist\dBsync.exe
+    )
 ) else (
     echo.
     echo Build failed!
