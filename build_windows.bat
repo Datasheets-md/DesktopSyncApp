@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 echo Building dBsync for Windows...
 
 REM Show current version
@@ -43,10 +44,10 @@ if exist icon.ico (
 if %errorlevel% equ 0 (
     REM Get version and rename
     for /f "delims=" %%v in ('python -c "from version import __version__; print(__version__)" 2^>nul') do set APP_VERSION=%%v
-    if not "%APP_VERSION%"=="" (
-        rename dist\dBsync.exe dBsync-%APP_VERSION%.exe
+    if not "!APP_VERSION!"=="" (
+        rename dist\dBsync.exe dBsync-!APP_VERSION!.exe
         echo.
-        echo Build complete: dist\dBsync-%APP_VERSION%.exe
+        echo Build complete: dist\dBsync-!APP_VERSION!.exe
     ) else (
         echo.
         echo Build complete: dist\dBsync.exe
