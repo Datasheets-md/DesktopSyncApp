@@ -7,9 +7,10 @@ sys.path.insert(0, SCRIPT_DIR)
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QFormLayout,
-    QFileDialog, QMessageBox,
+    QFileDialog,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from api import test_connection
 from config import load_config, save_config
 from sync_engine import run_sync, export_to_kicad_sym
 from version import __version__, __app_name__
@@ -41,26 +42,54 @@ class SyncWorker(QThread):
             self.error.emit(str(e))
 
 
+class TestWorker(QThread):
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+
+    def run(self):
+        try:
+            test_connection(self.config)
+            self.finished.emit()
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class dBSyncWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{__app_name__} v{__version__}")
-        self.setFixedSize(450, 280)
+        self.setFixedSize(500, 320)
 
         self.config = load_config()
         self.sync_worker = None
+        self.test_worker = None
 
         layout = QVBoxLayout(self)
 
-        # Login form
+        # Token + Test
         form = QFormLayout()
-        self.email_input = QLineEdit(self.config.get("user_email", ""))
-        self.email_input.setPlaceholderText("user@example.com")
-        self.password_input = QLineEdit(self.config.get("user_password", ""))
-        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.password_input.setPlaceholderText("password")
-        form.addRow("Email:", self.email_input)
-        form.addRow("Password:", self.password_input)
+        token_row = QHBoxLayout()
+        self.token_input = QLineEdit(self.config.get("api_token", ""))
+        self.token_input.setPlaceholderText("dsh_...")
+        self.token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.test_btn = QPushButton("Test")
+        self.test_btn.setFixedWidth(80)
+        self.test_btn.clicked.connect(self._on_test)
+        token_row.addWidget(self.token_input)
+        token_row.addWidget(self.test_btn)
+        form.addRow("API token:", token_row)
+
+        help_label = QLabel(
+            'Get a token from <a href="https://datasheets.md/integrations/api">'
+            'datasheets.md/integrations/api</a>'
+        )
+        help_label.setOpenExternalLinks(True)
+        help_label.setStyleSheet("color: gray; font-size: 11px;")
+        form.addRow("", help_label)
         layout.addLayout(form)
 
         # Output folder
@@ -93,42 +122,56 @@ class dBSyncWindow(QWidget):
         layout.addWidget(version_label)
 
     def _browse_folder(self):
-        # Start from current directory if no folder is selected
         start_dir = self.folder_input.text() or os.path.expanduser("~")
         folder = QFileDialog.getExistingDirectory(self, "Select output folder", start_dir)
         if folder:
             self.folder_input.setText(folder)
 
+    def _save_token(self) -> str:
+        token = self.token_input.text().strip()
+        self.config["api_token"] = token
+        save_config(self.config)
+        return token
+
+    def _on_test(self):
+        token = self._save_token()
+        if not token:
+            self._set_status("Paste your API token first", "red")
+            return
+        self.test_btn.setEnabled(False)
+        self._set_status("Testing connection...", "gray")
+        self.test_worker = TestWorker(self.config)
+        self.test_worker.finished.connect(self._on_test_done)
+        self.test_worker.error.connect(self._on_test_error)
+        self.test_worker.start()
+
+    def _on_test_done(self):
+        self.test_btn.setEnabled(True)
+        self._set_status("Connection OK", "green")
+
+    def _on_test_error(self, msg):
+        self.test_btn.setEnabled(True)
+        self._set_status(msg[:80], "red")
+
     def _on_sync(self):
-        email = self.email_input.text().strip()
-        password = self.password_input.text()
+        token = self._save_token()
         output_dir = self.folder_input.text().strip()
 
-        if not email or not password:
-            self.status_label.setText("Enter email and password")
-            self.status_label.setStyleSheet("color: red;")
+        if not token:
+            self._set_status("Paste your API token first", "red")
             return
-
         if not output_dir or not os.path.isdir(output_dir):
-            self.status_label.setText("Select a valid output folder")
-            self.status_label.setStyleSheet("color: red;")
+            self._set_status("Select a valid output folder", "red")
             return
 
-        # Save config (but don't save output_dir to file)
-        self.config["user_email"] = email
-        self.config["user_password"] = password
-
-        # Set output_dir temporarily for this sync session only
+        # output_dir is per-session, not persisted.
         self.config["output_dir"] = output_dir
-
-        # Save config without output_dir
         config_to_save = self.config.copy()
         config_to_save.pop("output_dir", None)
         save_config(config_to_save)
 
         self.sync_btn.setEnabled(False)
-        self.status_label.setText("Connecting...")
-        self.status_label.setStyleSheet("color: gray;")
+        self._set_status("Connecting...", "gray")
 
         self.sync_worker = SyncWorker(self.config)
         self.sync_worker.finished.connect(self._on_done)
@@ -138,21 +181,22 @@ class dBSyncWindow(QWidget):
     def _on_done(self, result):
         self.sync_btn.setEnabled(True)
         if result.get("error"):
-            self.status_label.setText(f"Error: {result['error']}")
-            self.status_label.setStyleSheet("color: red;")
+            self._set_status(f"Error: {result['error']}", "red")
+            return
+        n = result["components"]
+        t = result["tables"]
+        if result.get("symbol_library_created"):
+            self._set_status(f"Done! {n} components in {t} categories. Library ready!", "green")
         else:
-            n = result["components"]
-            t = result["tables"]
-            if result.get("symbol_library_created"):
-                self.status_label.setText(f"Done! {n} components in {t} categories. Library ready!")
-            else:
-                self.status_label.setText(f"Done! {n} components in {t} categories")
-            self.status_label.setStyleSheet("color: green;")
+            self._set_status(f"Done! {n} components in {t} categories", "green")
 
     def _on_error(self, msg):
         self.sync_btn.setEnabled(True)
-        self.status_label.setText(msg[:80])
-        self.status_label.setStyleSheet("color: red;")
+        self._set_status(msg[:80], "red")
+
+    def _set_status(self, text: str, colour: str):
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(f"color: {colour};")
 
 
 def main():

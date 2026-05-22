@@ -1,12 +1,34 @@
 import requests
-from auth import login, API_BASE
+from auth import API_BASE
+
+
+def _headers(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_connection(config):
+    token = (config.get("api_token") or "").strip()
+    if not token:
+        raise RuntimeError("Paste your API token first")
+    api_url = config.get("api_url", API_BASE).rstrip("/")
+    resp = requests.get(
+        f"{api_url}/api/priv_components",
+        headers=_headers(token),
+        params={"page": 1, "limit": 1},
+        timeout=15,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("Invalid or revoked API token")
+    if resp.status_code != 200:
+        raise RuntimeError(f"API error (HTTP {resp.status_code})")
+    return True
 
 
 def fetch_components(config):
-    token = login(config)
+    token = (config.get("api_token") or "").strip()
+    if not token:
+        raise RuntimeError("Paste your API token first")
     api_url = config.get("api_url", API_BASE).rstrip("/")
-
-    headers = {"Authorization": f"Bearer {token}"}
 
     components = []
     page = 1
@@ -14,13 +36,13 @@ def fetch_components(config):
     while True:
         resp = requests.get(
             f"{api_url}/api/priv_components",
-            headers=headers,
+            headers=_headers(token),
             params={"page": page, "limit": 100},
             timeout=60,
         )
 
         if resp.status_code == 401:
-            raise RuntimeError("Authentication expired")
+            raise RuntimeError("Invalid or revoked API token")
         if resp.status_code != 200:
             raise RuntimeError(f"API error (HTTP {resp.status_code})")
 

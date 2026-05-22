@@ -4,8 +4,8 @@ Syncs private electronic components from Datasheets.md to KiCad.
 
 ## How it works
 
-1. User logs in with Datasheets.md credentials
-2. App fetches user's private components via REST API
+1. User creates a personal API token at https://datasheets.md/integrations/api and pastes it into the app
+2. App fetches user's private components via REST API using the token as `Authorization: Bearer dsh_...`
 3. Components are saved locally as SQLite database
 4. Exports to `.kicad_sym` format (KiCad symbol library)
 5. User adds the library to KiCad
@@ -51,4 +51,5 @@ python3 sync_engine.py --export-static
 
 The app connects to the Datasheets.md REST API (`https://datasheets.md`).
 
-User credentials are saved locally after first login.
+The API token is saved locally in `dbsync.json` after you click Test or Sync. Revoke
+it any time at https://datasheets.md/integrations/api if a device is lost.
