@@ -1,0 +1,83 @@
+name: Build binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: echo "value=$(python -c 'from version import __version__; print(__version__)')" >> "$GITHUB_OUTPUT"
+
+      - name: Build (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python -m PyInstaller --onefile --windowed --name dBsync \
+            --add-data "dbsync.json:." \
+            --clean dbsync.py
+          chmod +x dist/dBsync
+          mv dist/dBsync "dist/dBsync-${{ steps.version.outputs.value }}"
+
+      - name: Build (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          python -m PyInstaller --onedir --windowed --name dBsync \
+            --add-data "dbsync.json:." \
+            --icon icon-windowed.icns \
+            --clean dbsync.py
+          rm -rf dist/dBsync
+          mv dist/dBsync.app "dist/dBsync-${{ steps.version.outputs.value }}.app"
+          ( cd dist && zip -ry "dBsync-${{ steps.version.outputs.value }}.zip" "dBsync-${{ steps.version.outputs.value }}.app" )
+
+      - name: Build (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          python -m PyInstaller --onefile --windowed --name dBsync \
+            --add-data "dbsync.json;." \
+            --icon icon.ico \
+            --clean dbsync.py
+          mv dist/dBsync.exe "dist/dBsync-${{ steps.version.outputs.value }}.exe"
+
+      - name: Upload Linux artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dBsync-linux
+          path: dist/dBsync-${{ steps.version.outputs.value }}
+
+      - name: Upload macOS artifact
+        if: matrix.os == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dBsync-macos
+          path: dist/dBsync-${{ steps.version.outputs.value }}.zip
+
+      - name: Upload Windows artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dBsync-windows
+          path: dist/dBsync-${{ steps.version.outputs.value }}.exe
