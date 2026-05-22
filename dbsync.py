@@ -10,10 +10,19 @@ from PyQt6.QtWidgets import (
     QFileDialog,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
+from PyQt6.QtGui import QIcon
 from api import test_connection
 from config import load_config, save_config
 from sync_engine import run_sync, export_to_kicad_sym
 from version import __version__, __app_name__
+
+
+def _resource_path(filename: str) -> str:
+    """Return absolute path to a bundled resource. PyInstaller's --onefile
+    extracts data files into sys._MEIPASS at runtime; --onedir keeps them
+    next to the script. Falls back to SCRIPT_DIR when run from source."""
+    base = getattr(sys, "_MEIPASS", SCRIPT_DIR)
+    return os.path.join(base, filename)
 
 
 class SyncWorker(QThread):
@@ -62,7 +71,11 @@ class dBSyncWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{__app_name__} v{__version__}")
-        self.setFixedSize(500, 320)
+        self.setFixedSize(500, 360)
+
+        icon_path = _resource_path("icon.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         self.config = load_config()
         self.sync_worker = None
@@ -70,8 +83,14 @@ class dBSyncWindow(QWidget):
 
         layout = QVBoxLayout(self)
 
-        # Token + Test
         form = QFormLayout()
+
+        # API URL — defaults to prod; editable so dev/self-hosted users can override.
+        self.url_input = QLineEdit(self.config.get("api_url", "https://datasheets.md"))
+        self.url_input.setPlaceholderText("https://datasheets.md")
+        form.addRow("Server URL:", self.url_input)
+
+        # Token + Test
         token_row = QHBoxLayout()
         self.token_input = QLineEdit(self.config.get("api_token", ""))
         self.token_input.setPlaceholderText("dsh_...")
@@ -85,7 +104,7 @@ class dBSyncWindow(QWidget):
 
         help_label = QLabel(
             'Get a token from <a href="https://datasheets.md/integrations/api">'
-            'datasheets.md/integrations/api</a>'
+            'datasheets.md/integrations/api</a> (or your dev/self-hosted server).'
         )
         help_label.setOpenExternalLinks(True)
         help_label.setStyleSheet("color: gray; font-size: 11px;")
@@ -129,7 +148,9 @@ class dBSyncWindow(QWidget):
 
     def _save_token(self) -> str:
         token = self.token_input.text().strip()
+        url = self.url_input.text().strip() or "https://datasheets.md"
         self.config["api_token"] = token
+        self.config["api_url"] = url.rstrip("/")
         save_config(self.config)
         return token
 
