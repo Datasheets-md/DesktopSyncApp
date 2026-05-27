@@ -2,6 +2,5 @@
     "api_url": "https://datasheets.md",
     "sync_interval_sec": 300,
     "exclude_fields": [],
-    "user_email": "mika@gmail.com",
-    "user_password": "mika@gmail.com"
+    "api_token": ""
 }

@@ -36,6 +36,8 @@ jobs:
         run: |
           python -m PyInstaller --onefile --windowed --name dBsync \
             --add-data "dbsync.json:." \
+            --add-data "icon.png:." \
+            --icon icon.png \
             --clean dbsync.py
           chmod +x dist/dBsync
           mv dist/dBsync "dist/dBsync-${{ steps.version.outputs.value }}"
@@ -45,6 +47,7 @@ jobs:
         run: |
           python -m PyInstaller --onedir --windowed --name dBsync \
             --add-data "dbsync.json:." \
+            --add-data "icon.png:." \
             --icon icon-windowed.icns \
             --clean dbsync.py
           rm -rf dist/dBsync
@@ -57,6 +60,7 @@ jobs:
         run: |
           python -m PyInstaller --onefile --windowed --name dBsync \
             --add-data "dbsync.json;." \
+            --add-data "icon.png;." \
             --icon icon.ico \
             --clean dbsync.py
           mv dist/dBsync.exe "dist/dBsync-${{ steps.version.outputs.value }}.exe"
