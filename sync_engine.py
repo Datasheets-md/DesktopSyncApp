@@ -6,7 +6,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from config import load_config
-from api import fetch_components
+from api import fetch_components, fetch_cad_export
+import cad_delivery
 from db import (
     STANDARD_COLUMNS,
     open_db,
@@ -167,9 +168,22 @@ def run_sync(config=None):
     write_dbl(active_tables, param_columns, exclude_fields, dbl_path)
     print(f"Wrote {dbl_path} with {len(active_tables)} libraries")
 
+    # Deliver generated symbols (one .kicad_sym) + standard footprints (.pretty
+    # folder, one .kicad_mod per part). Best-effort: a CAD-export failure must
+    # not fail the database sync.
+    cad = {"symbols": 0, "footprints": 0}
+    try:
+        export = fetch_cad_export(config)
+        cad = cad_delivery.deliver(export, output_dir)
+        print(f"Delivered {cad['symbols']} symbols, {cad['footprints']} footprints")
+    except Exception as e:
+        print(f"  CAD delivery skipped: {e}")
+
     return {
         "tables": len(active_tables),
         "components": total_parts,
+        "symbols": cad["symbols"],
+        "footprints": cad["footprints"],
         "error": None,
     }
 

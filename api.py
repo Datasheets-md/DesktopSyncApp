@@ -87,3 +87,26 @@ def fetch_components(config):
 
     print(f"  Fetched {len(components)} components from API")
     return components
+
+
+def fetch_cad_export(config):
+    """Fetch generated symbols + standard footprints for every part in scope.
+
+    Returns {"symbol_lib": str, "parts": [{part_number, manufacturer, kicad_sym,
+    footprint_ref, kicad_mod}, ...]}. Parts without a generated symbol are
+    omitted by the server.
+    """
+    token = (config.get("api_token") or "").strip()
+    if not token:
+        raise RuntimeError("Paste your API token first")
+    api_url = config.get("api_url", API_BASE).rstrip("/")
+    resp = requests.get(
+        f"{api_url}/api/priv_components/cad-export/",
+        headers=_headers(token),
+        timeout=120,
+    )
+    if resp.status_code == 401:
+        raise RuntimeError("Invalid or revoked API token")
+    if resp.status_code != 200:
+        raise RuntimeError(f"API error (HTTP {resp.status_code})")
+    return resp.json()

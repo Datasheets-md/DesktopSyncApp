@@ -206,10 +206,13 @@ class dBSyncWindow(QWidget):
             return
         n = result["components"]
         t = result["tables"]
+        cad = ""
+        if result.get("symbols"):
+            cad = f" + {result['symbols']} generated symbols, {result.get('footprints', 0)} footprints"
         if result.get("symbol_library_created"):
-            self._set_status(f"Done! {n} components in {t} categories. Library ready!", "green")
+            self._set_status(f"Done! {n} components in {t} categories{cad}. Library ready!", "green")
         else:
-            self._set_status(f"Done! {n} components in {t} categories", "green")
+            self._set_status(f"Done! {n} components in {t} categories{cad}", "green")
 
     def _on_error(self, msg):
         self.sync_btn.setEnabled(True)
