@@ -22,16 +22,21 @@ from db import (
 )
 from dbl import write_dbl
 
-def extract_component(component, param_names):
+def extract_component(component, param_names, cad_map=None):
     metadata = component.get("metadata") or []
     meta = metadata[0] if metadata else {}
+
+    # When the part's symbol/footprint were delivered self-contained, point the
+    # database library at the delivered `datasheets:` libs; else fall back to the
+    # stock KiCad ref (which relies on the user's installed libraries).
+    delivered = (cad_map or {}).get(meta.get("part_number", "")) or {}
 
     row = {
         "IPN": meta.get("part_number", ""),
         "Value": meta.get("part_number", ""),
         "Description": meta.get("description", ""),
-        "Symbols": meta.get("kicad_symbol", ""),
-        "Footprints": meta.get("kicad_footprint", ""),
+        "Symbols": delivered.get("symbol") or meta.get("kicad_symbol", ""),
+        "Footprints": delivered.get("footprint") or meta.get("kicad_footprint", ""),
         "Manufacturer": meta.get("manufacturer", ""),
         "MPN": meta.get("part_number", ""),
         "Package": meta.get("package", ""),
@@ -126,6 +131,16 @@ def run_sync(config=None):
     grouped = group_by_category(components)
     print(f"Grouped into {len(grouped)} categories")
 
+    # Fetch the CAD export up front so the database library can reference the
+    # symbols/footprints we deliver self-contained. Best-effort: a failure just
+    # falls back to stock KiCad refs. The same payload is delivered below.
+    cad_export = None
+    try:
+        cad_export = fetch_cad_export(config)
+    except Exception as e:
+        print(f"  CAD export fetch failed: {e}")
+    cad_map = cad_delivery.ref_map(cad_export)
+
     # Combine standard columns and parameter columns, case-insensitive dedup
     all_columns = _dedup_columns(list(STANDARD_COLUMNS) + param_columns)
 
@@ -133,7 +148,7 @@ def run_sync(config=None):
     for table_name, comps in grouped.items():
         rows = []
         for comp in comps:
-            row = extract_component(comp, set(param_columns))
+            row = extract_component(comp, set(param_columns), cad_map)
             if row["IPN"]:
                 rows.append(row)
         if rows:
@@ -168,13 +183,12 @@ def run_sync(config=None):
     write_dbl(active_tables, param_columns, exclude_fields, dbl_path)
     print(f"Wrote {dbl_path} with {len(active_tables)} libraries")
 
-    # Deliver generated symbols (one .kicad_sym) + standard footprints (.pretty
-    # folder, one .kicad_mod per part). Best-effort: a CAD-export failure must
-    # not fail the database sync.
+    # Deliver per-part symbols (one merged datasheets.kicad_sym) + footprints
+    # (datasheets.pretty/, one .kicad_mod per part) from the export fetched
+    # above. Best-effort: a delivery failure must not fail the database sync.
     cad = {"symbols": 0, "footprints": 0}
     try:
-        export = fetch_cad_export(config)
-        cad = cad_delivery.deliver(export, output_dir)
+        cad = cad_delivery.deliver(cad_export, output_dir)
         print(f"Delivered {cad['symbols']} symbols, {cad['footprints']} footprints")
     except Exception as e:
         print(f"  CAD delivery skipped: {e}")
@@ -187,140 +201,9 @@ def run_sync(config=None):
         "error": None,
     }
 
-def export_to_kicad_sym(db_path, output_path):
-    """Export database to KiCad symbol library format (.kicad_sym) in S-expression format"""
-    import sqlite3
-
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-
-    # Get all tables
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
-    tables = cur.fetchall()
-
-    # Start building S-expression format
-    output = []
-    output.append('(kicad_symbol_lib (version 20211014) (generator "dbsync")')
-
-    total_components = 0
-
-    for table_name, in tables:
-        # Get all components from table
-        cur.execute(f'SELECT * FROM "{table_name}"')
-        columns = [desc[0] for desc in cur.description]
-        components = cur.fetchall()
-
-        for comp in components:
-            row = dict(zip(columns, comp))
-            ipn = row.get('IPN', '')
-            if not ipn:
-                continue
-
-            # Clean component name for S-expression format
-            symbol_name = ipn.replace(' ', '_').replace('/', '_').replace('\\', '_')
-
-            # Determine reference prefix based on category
-            ref_prefix = "U"
-            category = (row.get('Category', '') or '').lower()
-            if 'mosfet' in category or 'transistor' in category:
-                ref_prefix = "Q"
-            elif 'capacitor' in category:
-                ref_prefix = "C"
-            elif 'resistor' in category:
-                ref_prefix = "R"
-            elif 'inductor' in category:
-                ref_prefix = "L"
-            elif 'diode' in category:
-                ref_prefix = "D"
-
-            # Start symbol
-            output.append(f'  (symbol "{symbol_name}" (pin_names (offset 0.254)) (in_bom yes) (on_board yes)')
-
-            # Add properties
-            prop_id = 0
-
-            # Reference
-            output.append(f'    (property "Reference" "{ref_prefix}" (id {prop_id}) (at 0 0 0)')
-            output.append('      (effects (font (size 1.27 1.27)))')
-            output.append('    )')
-            prop_id += 1
-
-            # Value
-            value = row.get('Value', ipn)
-            output.append(f'    (property "Value" "{value}" (id {prop_id}) (at 0 0 0)')
-            output.append('      (effects (font (size 1.27 1.27)))')
-            output.append('    )')
-            prop_id += 1
-
-            # Footprint
-            footprint = row.get('Footprints', '')
-            if footprint:
-                output.append(f'    (property "Footprint" "{footprint}" (id {prop_id}) (at 0 0 0)')
-                output.append('      (effects (font (size 1.27 1.27)) hide)')
-                output.append('    )')
-                prop_id += 1
-
-            # Datasheet
-            datasheet = row.get('Datasheet', '')
-            if datasheet:
-                output.append(f'    (property "Datasheet" "{datasheet}" (id {prop_id}) (at 0 0 0)')
-                output.append('      (effects (font (size 1.27 1.27)) hide)')
-                output.append('    )')
-                prop_id += 1
-
-            # Add other properties
-            for col, val in row.items():
-                if val and col not in ['IPN', 'Value', 'Symbols', 'Footprints', 'Datasheet']:
-                    # Escape quotes in values
-                    val_str = str(val).replace('"', '\\"')
-                    col_name = col.replace('_', ' ')
-                    output.append(f'    (property "{col_name}" "{val_str}" (id {prop_id}) (at 0 0 0)')
-                    output.append('      (effects (font (size 1.27 1.27)) hide)')
-                    output.append('    )')
-                    prop_id += 1
-
-            # Add a basic symbol graphic (rectangle) - users should use database symbols
-            output.append('    (symbol "{}_0_1"'.format(symbol_name))
-            output.append('      (rectangle (start -5.08 5.08) (end 5.08 -5.08)')
-            output.append('        (stroke (width 0.254) (type default) (color 0 0 0 0))')
-            output.append('        (fill (type background))')
-            output.append('      )')
-            output.append('    )')
-
-            # Add pins (minimal - just power and ground for now)
-            output.append('    (symbol "{}_1_1"'.format(symbol_name))
-            output.append('      (pin power_in line (at 0 7.62 270) (length 2.54)')
-            output.append('        (name "VCC" (effects (font (size 1.27 1.27))))')
-            output.append('        (number "1" (effects (font (size 1.27 1.27))))')
-            output.append('      )')
-            output.append('      (pin power_in line (at 0 -7.62 90) (length 2.54)')
-            output.append('        (name "GND" (effects (font (size 1.27 1.27))))')
-            output.append('        (number "2" (effects (font (size 1.27 1.27))))')
-            output.append('      )')
-            output.append('    )')
-
-            # Close symbol
-            output.append('  )')
-
-            total_components += 1
-
-    # Close library
-    output.append(')')
-
-    # Write to file
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(output))
-
-    conn.close()
-
-    print(f"Exported {total_components} components to {output_path}")
-    return total_components
-
 def main():
     parser = argparse.ArgumentParser(description="Sync private components to local SQLite for KiCad")
     parser.add_argument("--config", help="Path to config file")
-    parser.add_argument("--export-static", action="store_true",
-                        help="Also export to static KiCad symbol library (no ODBC needed)")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -332,22 +215,8 @@ def main():
         sys.exit(1)
 
     print(f"\nDone! {result['components']} components in {result['tables']} tables.")
-
-    # Export to static format if requested
-    if args.export_static:
-        output_dir = config.get("output_dir", ".")
-        db_path = os.path.join(output_dir, "dbsync.sqlite")
-        sym_path = os.path.join(output_dir, "dbsync.kicad_sym")
-
-        print(f"\nExporting to static library...")
-        export_to_kicad_sym(db_path, sym_path)
-        print(f"Static library saved to: {sym_path}")
-        print("You can add this file directly to KiCad - no ODBC drivers needed!")
-    else:
-        print("\nOptions:")
-        print("1. Use with ODBC: Add dbsync_portable.kicad_dbl to KiCad (requires ODBC drivers)")
-        print("2. Export static: Run with --export-static flag to create .kicad_sym (no drivers needed)")
-
+    print(f"Delivered {result['symbols']} symbols + {result['footprints']} footprints "
+          "into datasheets.kicad_sym / datasheets.pretty.")
     print("\nRe-open the symbol chooser in KiCad to see updates.")
 
 if __name__ == "__main__":

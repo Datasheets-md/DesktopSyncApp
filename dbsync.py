@@ -13,7 +13,7 @@ from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QIcon
 from api import test_connection
 from config import load_config, save_config
-from sync_engine import run_sync, export_to_kicad_sym
+from sync_engine import run_sync
 from version import __version__, __app_name__
 
 
@@ -35,17 +35,10 @@ class SyncWorker(QThread):
 
     def run(self):
         try:
+            # run_sync delivers the real per-part symbols + footprints
+            # (datasheets.kicad_sym / datasheets.pretty). The old generic-box
+            # dbsync.kicad_sym export was retired.
             result = run_sync(self.config)
-
-            # Also export to KiCad symbol library format (no ODBC needed)
-            output_dir = self.config.get("output_dir", ".")
-            db_path = os.path.join(output_dir, "dbsync.sqlite")
-            sym_path = os.path.join(output_dir, "dbsync.kicad_sym")
-
-            if os.path.exists(db_path):
-                export_to_kicad_sym(db_path, sym_path)
-                result["symbol_library_created"] = True
-
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -208,11 +201,8 @@ class dBSyncWindow(QWidget):
         t = result["tables"]
         cad = ""
         if result.get("symbols"):
-            cad = f" + {result['symbols']} generated symbols, {result.get('footprints', 0)} footprints"
-        if result.get("symbol_library_created"):
-            self._set_status(f"Done! {n} components in {t} categories{cad}. Library ready!", "green")
-        else:
-            self._set_status(f"Done! {n} components in {t} categories{cad}", "green")
+            cad = f" + {result['symbols']} symbols, {result.get('footprints', 0)} footprints"
+        self._set_status(f"Done! {n} components in {t} categories{cad}", "green")
 
     def _on_error(self, msg):
         self.sync_btn.setEnabled(True)

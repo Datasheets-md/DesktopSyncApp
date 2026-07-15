@@ -20,43 +20,50 @@ def kicad_symbol_name(part_number: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.+-]", "_", part_number or "")
 
 
-def _extract_symbol_block(kicad_sym_text: str) -> str | None:
-    """Return the top-level `(symbol "..." ...)` s-expression from a single-symbol
-    library, with balanced parentheses (string-literal aware). None if absent."""
-    start = kicad_sym_text.find("(symbol ")
-    if start == -1:
-        return None
-    depth = 0
-    in_str = False
-    escaped = False
-    for i in range(start, len(kicad_sym_text)):
-        ch = kicad_sym_text[i]
-        if in_str:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
-            if depth == 0:
-                return kicad_sym_text[start:i + 1]
-    return None
+def _iter_symbol_blocks(kicad_sym_text: str):
+    """Yield each top-level `(symbol "..." ...)` s-expression from a library, with
+    balanced parentheses (string-literal aware). A part's payload usually holds
+    one symbol, but a standard-glyph part that `extends` a parent carries the
+    ancestor chain too -- all of which must land in the merged library."""
+    i, n = 0, len(kicad_sym_text)
+    while True:
+        start = kicad_sym_text.find("(symbol ", i)
+        if start == -1:
+            return
+        depth = 0
+        in_str = escaped = False
+        end = None
+        for j in range(start, n):
+            ch = kicad_sym_text[j]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1
+                    break
+        if end is None:
+            return
+        yield kicad_sym_text[start:end]
+        i = end
 
 
 def merge_symbol_lib(parts) -> str:
-    """Build one KiCad symbol library from each part's generated .kicad_sym."""
+    """Build one KiCad symbol library from each part's delivered .kicad_sym."""
     blocks = []
     for part in parts:
         text = part.get("kicad_sym") or ""
-        block = _extract_symbol_block(text)
-        if block:
+        for block in _iter_symbol_blocks(text):
             blocks.append("  " + block)
     header = (
         "(kicad_symbol_lib\n"
@@ -67,6 +74,36 @@ def merge_symbol_lib(parts) -> str:
     return header + "\n".join(blocks) + "\n)\n"
 
 
+def _footprint_file_name(footprint_ref: str) -> str | None:
+    """Sanitised `<name>` for a `<library>:<name>` footprint ref -- the stem of
+    the .kicad_mod written into datasheets.pretty and the `datasheets:<name>`
+    nickname. None when the ref is malformed."""
+    if not footprint_ref or ":" not in footprint_ref:
+        return None
+    return re.sub(r"[^A-Za-z0-9_.+-]", "_", footprint_ref.split(":", 1)[1])
+
+
+def ref_map(export) -> dict:
+    """part_number -> {'symbol': 'datasheets:<name>', 'footprint': 'datasheets:<name>'}
+    for parts actually delivered, so the database library (dbsync.kicad_dbl) can
+    point at the delivered libs instead of the user's installed KiCad libraries.
+    Footprint is only mapped when its .kicad_mod was delivered."""
+    out: dict = {}
+    for part in (export or {}).get("parts") or []:
+        pn = part.get("part_number") or ""
+        if not pn:
+            continue
+        entry: dict = {}
+        sym = part.get("symbol_name") or ""
+        if sym:
+            entry["symbol"] = f"{LIB_NAME}:{sym}"
+        fp = _footprint_file_name(part.get("footprint_ref") or "")
+        if fp and part.get("kicad_mod"):
+            entry["footprint"] = f"{LIB_NAME}:{fp}"
+        out[pn] = entry
+    return out
+
+
 def write_pretty(parts, pretty_dir) -> int:
     """Write one <name>.kicad_mod per part with a standard footprint. Returns the
     count written."""
@@ -74,11 +111,9 @@ def write_pretty(parts, pretty_dir) -> int:
     written = 0
     for part in parts:
         mod = part.get("kicad_mod")
-        ref = part.get("footprint_ref") or ""
-        if not mod or ":" not in ref:
+        safe = _footprint_file_name(part.get("footprint_ref") or "")
+        if not mod or not safe:
             continue
-        name = ref.split(":", 1)[1]
-        safe = re.sub(r"[^A-Za-z0-9_.+-]", "_", name)
         with open(os.path.join(pretty_dir, f"{safe}.kicad_mod"), "w", encoding="utf-8") as fh:
             fh.write(mod)
         written += 1
