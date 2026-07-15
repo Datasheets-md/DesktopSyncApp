@@ -42,6 +42,34 @@ jobs:
           chmod +x dist/dBsync
           mv dist/dBsync "dist/dBsync-${{ steps.version.outputs.value }}"
 
+          # Package as AppImage (recognizable, double-clickable Linux format)
+          VERSION="${{ steps.version.outputs.value }}"
+          curl -sL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          APPDIR=dist/dBsync.AppDir
+          mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+          cp "dist/dBsync-${VERSION}" "$APPDIR/usr/bin/dBsync"
+          chmod +x "$APPDIR/usr/bin/dBsync"
+          cat > "$APPDIR/dBsync.desktop" <<EOF
+          [Desktop Entry]
+          Name=dBsync
+          Exec=dBsync
+          Icon=dbsync
+          Type=Application
+          Categories=Development;Engineering;
+          Comment=Sync components from Datasheets.md to KiCad
+          EOF
+          cp "$APPDIR/dBsync.desktop" "$APPDIR/usr/share/applications/"
+          cp icon.png "$APPDIR/dbsync.png"
+          cp icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/dbsync.png"
+          cat > "$APPDIR/AppRun" <<'EOF'
+          #!/bin/bash
+          HERE="$(dirname "$(readlink -f "${0}")")"
+          exec "${HERE}/usr/bin/dBsync" "$@"
+          EOF
+          chmod +x "$APPDIR/AppRun"
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run "$APPDIR" "dist/dBsync-${VERSION}.AppImage"
+
       - name: Build (macOS)
         if: matrix.os == 'macos-latest'
         run: |
@@ -70,7 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dBsync-linux
-          path: dist/dBsync-${{ steps.version.outputs.value }}
+          path: dist/dBsync-${{ steps.version.outputs.value }}.AppImage
 
       - name: Upload macOS artifact
         if: matrix.os == 'macos-latest'
