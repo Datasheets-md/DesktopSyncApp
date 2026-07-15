@@ -58,12 +58,24 @@ def _iter_symbol_blocks(kicad_sym_text: str):
         i = end
 
 
+_SYM_NAME_RE = re.compile(r'\(symbol\s+"((?:[^"\\]|\\.)*)"')
+
+
 def merge_symbol_lib(parts) -> str:
-    """Build one KiCad symbol library from each part's delivered .kicad_sym."""
+    """Build one KiCad symbol library from each part's delivered .kicad_sym.
+    Standard KiCad glyphs are shipped verbatim under their own names and shared
+    by many parts, so dedup by symbol name -- one copy of each glyph (and of any
+    extends ancestor)."""
     blocks = []
+    seen = set()
     for part in parts:
         text = part.get("kicad_sym") or ""
         for block in _iter_symbol_blocks(text):
+            m = _SYM_NAME_RE.match(block)
+            name = m.group(1) if m else None
+            if name is None or name in seen:
+                continue
+            seen.add(name)
             blocks.append("  " + block)
     header = (
         "(kicad_symbol_lib\n"
