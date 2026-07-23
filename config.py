@@ -9,6 +9,15 @@ DEFAULTS = {
     "sync_interval_sec": 300,
     "exclude_fields": [],
     "api_token": "",
+    # What to synchronise. The SQLite database (usable by any tool that reads it)
+    # and the KiCad library files (symbols + footprints + database-library
+    # descriptor) sync by default; the bulk PDF/markdown datasheet mirrors are
+    # opt-in. The KiCad library descriptor points at the SQLite database, so
+    # sync_kicad implies sync_sqlite (enforced in the GUI + sync engine).
+    "sync_sqlite": True,
+    "sync_kicad": True,
+    "sync_pdf": False,
+    "sync_markdown": False,
 }
 
 # Carried over from the pre-1.1 password-login flow. Dropped on load + save

@@ -7,7 +7,7 @@ sys.path.insert(0, SCRIPT_DIR)
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QFormLayout,
-    QFileDialog,
+    QFileDialog, QCheckBox, QGroupBox,
 )
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QIcon
@@ -64,7 +64,7 @@ class dBSyncWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{__app_name__} v{__version__}")
-        self.setFixedSize(500, 360)
+        self.setFixedSize(500, 500)
 
         icon_path = _resource_path("icon.png")
         if os.path.exists(icon_path):
@@ -116,6 +116,38 @@ class dBSyncWindow(QWidget):
         folder_layout.addWidget(browse_btn)
         layout.addLayout(folder_layout)
 
+        # What to sync
+        sync_group = QGroupBox("What to synchronise")
+        sync_layout = QVBoxLayout(sync_group)
+
+        self.chk_sqlite = QCheckBox("SQLite database (dbsync.sqlite)")
+        self.chk_sqlite.setToolTip(
+            "The component database as a SQLite file -- also usable by other CAD "
+            "tools and systems."
+        )
+        self.chk_kicad = QCheckBox("KiCad library files (symbols, footprints, database library)")
+        self.chk_kicad.setToolTip(
+            "datasheets.kicad_sym, datasheets.pretty/ and the dbsync.kicad_dbl "
+            "database-library descriptor. The descriptor reads the SQLite database, "
+            "so this requires it."
+        )
+        self.chk_pdf = QCheckBox("PDF datasheets (pdf/)")
+        self.chk_markdown = QCheckBox("Markdown datasheets (markdown/)")
+
+        self.chk_sqlite.setChecked(bool(self.config.get("sync_sqlite", True)))
+        self.chk_kicad.setChecked(bool(self.config.get("sync_kicad", True)))
+        self.chk_pdf.setChecked(bool(self.config.get("sync_pdf", False)))
+        self.chk_markdown.setChecked(bool(self.config.get("sync_markdown", False)))
+
+        # The .kicad_dbl descriptor points at the SQLite database, so KiCad
+        # delivery requires it: force-check + lock the SQLite box while KiCad is on.
+        self.chk_kicad.toggled.connect(self._on_kicad_toggled)
+        self._on_kicad_toggled(self.chk_kicad.isChecked())
+
+        for chk in (self.chk_sqlite, self.chk_kicad, self.chk_pdf, self.chk_markdown):
+            sync_layout.addWidget(chk)
+        layout.addWidget(sync_group)
+
         # Status
         self.status_label = QLabel("")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -139,11 +171,23 @@ class dBSyncWindow(QWidget):
         if folder:
             self.folder_input.setText(folder)
 
+    def _on_kicad_toggled(self, checked: bool):
+        # KiCad delivery needs the SQLite database (the .kicad_dbl points at it),
+        # so lock the SQLite box on while KiCad is selected. Unlock it otherwise
+        # -- the SQLite file is independently useful to other tools.
+        if checked:
+            self.chk_sqlite.setChecked(True)
+        self.chk_sqlite.setEnabled(not checked)
+
     def _save_token(self) -> str:
         token = self.token_input.text().strip()
         url = self.url_input.text().strip() or "https://datasheets.md"
         self.config["api_token"] = token
         self.config["api_url"] = url.rstrip("/")
+        self.config["sync_sqlite"] = self.chk_sqlite.isChecked()
+        self.config["sync_kicad"] = self.chk_kicad.isChecked()
+        self.config["sync_pdf"] = self.chk_pdf.isChecked()
+        self.config["sync_markdown"] = self.chk_markdown.isChecked()
         save_config(self.config)
         return token
 
@@ -177,6 +221,10 @@ class dBSyncWindow(QWidget):
         if not output_dir or not os.path.isdir(output_dir):
             self._set_status("Select a valid output folder", "red")
             return
+        if not any((self.chk_sqlite.isChecked(), self.chk_kicad.isChecked(),
+                    self.chk_pdf.isChecked(), self.chk_markdown.isChecked())):
+            self._set_status("Select at least one thing to sync", "red")
+            return
 
         # output_dir is per-session, not persisted.
         self.config["output_dir"] = output_dir
@@ -197,12 +245,15 @@ class dBSyncWindow(QWidget):
         if result.get("error"):
             self._set_status(f"Error: {result['error']}", "red")
             return
-        n = result["components"]
-        t = result["tables"]
-        cad = ""
+        n = result.get("components", 0)
+        parts = [f"{n} components"]
         if result.get("symbols"):
-            cad = f" + {result['symbols']} symbols, {result.get('footprints', 0)} footprints"
-        self._set_status(f"Done! {n} components in {t} categories{cad}", "green")
+            parts.append(f"{result['symbols']} symbols, {result.get('footprints', 0)} footprints")
+        if result.get("pdfs"):
+            parts.append(f"{result['pdfs']} PDFs")
+        if result.get("markdown"):
+            parts.append(f"{result['markdown']} markdown")
+        self._set_status("Done! " + " + ".join(parts), "green")
 
     def _on_error(self, msg):
         self.sync_btn.setEnabled(True)
