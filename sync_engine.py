@@ -1,13 +1,21 @@
 import argparse
+import io
 import re
 import sys
 import os
+import zipfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
 from config import load_config
-from api import fetch_components, fetch_cad_export, fetch_pdf, fetch_markdown
+from api import (
+    fetch_components,
+    fetch_cad_export,
+    fetch_pdf,
+    fetch_markdown,
+    fetch_markdown_bundle,
+)
 import cad_delivery
 from db import (
     STANDARD_COLUMNS,
@@ -122,10 +130,34 @@ def _safe_filename(part_number, uuid, seen):
     return stem
 
 
-def _deliver_documents(config, components, output_dir, want_pdf, want_markdown):
+def _write_markdown_bundle(payload, md_dir, stem):
+    """Unpack a markdown+images zip into markdown/: the .md under our own naming,
+    its figures into the shared markdown/images/ folder the relative links point
+    at. Figure files are uuid-named, so every part can share that one folder."""
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        for name in archive.namelist():
+            if name.endswith("/"):
+                continue
+            if name.startswith("images/"):
+                image_dir = os.path.join(md_dir, "images")
+                os.makedirs(image_dir, exist_ok=True)
+                # basename only -- never let an archive path escape md_dir.
+                target = os.path.join(image_dir, os.path.basename(name))
+            elif name.endswith(".md"):
+                target = os.path.join(md_dir, f"{stem}.md")
+            else:
+                continue
+            with open(target, "wb") as fh:
+                fh.write(archive.read(name))
+
+
+def _deliver_documents(config, components, output_dir, want_pdf, want_markdown,
+                       want_markdown_images=False):
     """Download the original PDF and/or digitised markdown for each workspace
-    part into pdf/ and markdown/ subfolders. Best-effort per part: a missing or
-    failed document is skipped, never aborting the sync. Returns counts."""
+    part into pdf/ and markdown/ subfolders. With want_markdown_images the
+    markdown arrives as a zip and its figures land in markdown/images/, which
+    the .md links by relative path. Best-effort per part: a missing or failed
+    document is skipped, never aborting the sync. Returns counts."""
     pdf_dir = os.path.join(output_dir, "pdf")
     md_dir = os.path.join(output_dir, "markdown")
     if want_pdf:
@@ -152,18 +184,26 @@ def _deliver_documents(config, components, output_dir, want_pdf, want_markdown):
                 print(f"  PDF skipped for {pn or uuid}: {e}")
         if want_markdown:
             try:
-                text = fetch_markdown(config, uuid)
-                if text:
-                    with open(os.path.join(md_dir, f"{_safe_filename(pn, uuid, seen_md)}.md"), "w", encoding="utf-8") as fh:
-                        fh.write(text)
-                    mds += 1
+                stem = _safe_filename(pn, uuid, seen_md)
+                if want_markdown_images:
+                    payload = fetch_markdown_bundle(config, uuid)
+                    if payload:
+                        _write_markdown_bundle(payload, md_dir, stem)
+                        mds += 1
+                else:
+                    text = fetch_markdown(config, uuid)
+                    if text:
+                        with open(os.path.join(md_dir, f"{stem}.md"), "w", encoding="utf-8") as fh:
+                            fh.write(text)
+                        mds += 1
             except Exception as e:
                 print(f"  Markdown skipped for {pn or uuid}: {e}")
 
     if want_pdf:
         print(f"Delivered {pdfs} PDF datasheets into pdf/")
     if want_markdown:
-        print(f"Delivered {mds} markdown datasheets into markdown/")
+        suffix = " (figures in markdown/images/)" if want_markdown_images else ""
+        print(f"Delivered {mds} markdown datasheets into markdown/{suffix}")
     return {"pdfs": pdfs, "markdown": mds}
 
 
@@ -176,6 +216,7 @@ def run_sync(config=None):
     want_kicad = bool(config.get("sync_kicad", True))
     want_pdf = bool(config.get("sync_pdf", False))
     want_markdown = bool(config.get("sync_markdown", False))
+    want_markdown_images = bool(config.get("sync_markdown_images", False))
 
     # The KiCad database-library descriptor (.kicad_dbl) points at the SQLite
     # database, so delivering the KiCad libraries requires the SQLite file too.
@@ -276,7 +317,8 @@ def run_sync(config=None):
                 print(f"  CAD delivery skipped: {e}")
 
     if want_pdf or want_markdown:
-        docs = _deliver_documents(config, components, output_dir, want_pdf, want_markdown)
+        docs = _deliver_documents(config, components, output_dir, want_pdf, want_markdown,
+                                  want_markdown_images)
         result["pdfs"] = docs["pdfs"]
         result["markdown"] = docs["markdown"]
         if not need_sqlite:

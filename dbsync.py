@@ -133,18 +133,29 @@ class dBSyncWindow(QWidget):
         )
         self.chk_pdf = QCheckBox("PDF datasheets (pdf/)")
         self.chk_markdown = QCheckBox("Markdown datasheets (markdown/)")
+        self.chk_markdown_images = QCheckBox("    Include figure images (markdown/images/)")
+        self.chk_markdown_images.setToolTip(
+            "Download each datasheet's figures alongside its markdown. The .md "
+            "links them by relative path, so it renders with its diagrams offline."
+        )
 
         self.chk_sqlite.setChecked(bool(self.config.get("sync_sqlite", True)))
         self.chk_kicad.setChecked(bool(self.config.get("sync_kicad", True)))
         self.chk_pdf.setChecked(bool(self.config.get("sync_pdf", False)))
         self.chk_markdown.setChecked(bool(self.config.get("sync_markdown", False)))
+        self.chk_markdown_images.setChecked(bool(self.config.get("sync_markdown_images", False)))
 
         # The .kicad_dbl descriptor points at the SQLite database, so KiCad
         # delivery requires it: force-check + lock the SQLite box while KiCad is on.
         self.chk_kicad.toggled.connect(self._on_kicad_toggled)
         self._on_kicad_toggled(self.chk_kicad.isChecked())
 
-        for chk in (self.chk_sqlite, self.chk_kicad, self.chk_pdf, self.chk_markdown):
+        # Images are a markdown sub-option: nothing to attach them to otherwise.
+        self.chk_markdown.toggled.connect(self.chk_markdown_images.setEnabled)
+        self.chk_markdown_images.setEnabled(self.chk_markdown.isChecked())
+
+        for chk in (self.chk_sqlite, self.chk_kicad, self.chk_pdf, self.chk_markdown,
+                    self.chk_markdown_images):
             sync_layout.addWidget(chk)
         layout.addWidget(sync_group)
 
@@ -188,6 +199,7 @@ class dBSyncWindow(QWidget):
         self.config["sync_kicad"] = self.chk_kicad.isChecked()
         self.config["sync_pdf"] = self.chk_pdf.isChecked()
         self.config["sync_markdown"] = self.chk_markdown.isChecked()
+        self.config["sync_markdown_images"] = self.chk_markdown_images.isChecked()
         save_config(self.config)
         return token
 

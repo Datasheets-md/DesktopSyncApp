@@ -18,6 +18,9 @@ DEFAULTS = {
     "sync_kicad": True,
     "sync_pdf": False,
     "sync_markdown": False,
+    # Fetch each markdown datasheet as a zip carrying its figure images, unpacked
+    # into markdown/images/ and linked by relative path from the .md.
+    "sync_markdown_images": False,
 }
 
 # Carried over from the pre-1.1 password-login flow. Dropped on load + save
