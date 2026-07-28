@@ -199,3 +199,19 @@ def fetch_markdown(config, uuid):
         return None
     _raise_for_status(resp, "markdown")
     return resp.text
+
+
+def fetch_markdown_bundle(config, uuid):
+    """Zip holding the digitised markdown plus an images/ folder of its figures,
+    which the .md links by relative path. None when the part has no markdown
+    available (a 404 from the server)."""
+    api_root, headers = _base(config)
+    resp = requests.get(
+        f"{api_root}/api/workspace/components/{uuid}/markdown-bundle",
+        headers=headers,
+        timeout=120,
+    )
+    if resp.status_code == 404:
+        return None
+    _raise_for_status(resp, "markdown bundle")
+    return resp.content
