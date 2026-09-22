@@ -78,9 +78,10 @@ class dBSyncWindow(QWidget):
 
         form = QFormLayout()
 
-        # API URL — defaults to prod; editable so dev/self-hosted users can override.
-        self.url_input = QLineEdit(self.config.get("api_url", "https://datasheets.md"))
-        self.url_input.setPlaceholderText("https://datasheets.md")
+        # API URL — defaults to prod's API host (not the web app's); editable so
+        # dev/self-hosted users can override.
+        self.url_input = QLineEdit(self.config.get("api_url", "https://api.datasheets.md"))
+        self.url_input.setPlaceholderText("https://api.datasheets.md")
         form.addRow("Server URL:", self.url_input)
 
         # Token + Test
@@ -192,7 +193,7 @@ class dBSyncWindow(QWidget):
 
     def _save_token(self) -> str:
         token = self.token_input.text().strip()
-        url = self.url_input.text().strip() or "https://datasheets.md"
+        url = self.url_input.text().strip() or "https://api.datasheets.md"
         self.config["api_token"] = token
         self.config["api_url"] = url.rstrip("/")
         self.config["sync_sqlite"] = self.chk_sqlite.isChecked()

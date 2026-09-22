@@ -5,7 +5,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(SCRIPT_DIR, "dbsync.json")
 
 DEFAULTS = {
-    "api_url": "https://datasheets.md",
+    "api_url": "https://api.datasheets.md",
     "sync_interval_sec": 300,
     "exclude_fields": [],
     "api_token": "",
