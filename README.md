@@ -59,8 +59,10 @@ Depending on which checkboxes are enabled, in the output folder:
 
 ## Configuration
 
-The app connects to the public Datasheets.md REST API under `https://datasheets.md/api-service`
-(override the server in the app for dev or self-hosted instances).
+The app connects to the public Datasheets.md REST API under `https://datasheets.md/api/v1`
+(override the server in the app for dev or self-hosted instances -- the dev
+instance answers at `https://api-dev.datasheets.md`). The API is documented at
+https://datasheets.md/api/v1/docs/.
 
 The API token is saved locally in `dbsync.json` after you click Test or Sync. Revoke
 it any time at https://datasheets.md/integrations/api if a device is lost.

@@ -1,11 +1,11 @@
 import requests
 from auth import API_BASE
 
-# The public REST API is mounted under /api-service on the datasheets.md domain
-# (nginx strips the prefix before proxying to the api-service container). The app
-# talks to this public API -- NOT main-api's internal routes -- so the open-source
-# client never hard-codes internal backend paths.
-API_PREFIX = "/api-service"
+# The public REST API is main-api's own documented surface, versioned under
+# /api/v1 (browse it at https://datasheets.md/api/v1/docs/). The separate
+# api-service gateway that used to answer at /api-service was retired in
+# September 2026; every route it proxied now lives here under its own name.
+API_PREFIX = "/api/v1"
 
 
 def _headers(token: str) -> dict:
@@ -25,6 +25,11 @@ def _base(config) -> tuple[str, dict]:
 def _raise_for_status(resp, what: str):
     if resp.status_code == 401:
         raise RuntimeError("Invalid or revoked API token")
+    if resp.status_code == 403:
+        raise RuntimeError(
+            "This API token is not allowed on the sync endpoints -- mint a new "
+            "one under Integrations -> REST API"
+        )
     if resp.status_code != 200:
         raise RuntimeError(f"API error fetching {what} (HTTP {resp.status_code})")
 
@@ -78,7 +83,7 @@ def _pick(params: list, keys: set) -> str:
 def test_connection(config):
     api_root, headers = _base(config)
     resp = requests.get(
-        f"{api_root}/api/workspace/components",
+        f"{api_root}/workspace/components/",
         headers=headers,
         params={"limit": 1},
         timeout=15,
@@ -87,47 +92,46 @@ def test_connection(config):
     return True
 
 
-def _fetch_parameters(api_root, headers, uuid):
-    """The unified datasheet (param_data tree) for one workspace part. Best-effort:
-    a per-part failure yields no parameters rather than aborting the whole sync."""
-    resp = requests.get(
-        f"{api_root}/api/workspace/components/{uuid}/parameters",
-        headers=headers,
-        timeout=60,
-    )
-    if resp.status_code != 200:
-        return {}
-    return (resp.json() or {}).get("param_data") or {}
-
-
 def fetch_components(config, with_parameters=True):
     """List the caller's workspace parts, shaped for the sqlite builder.
 
-    When `with_parameters` is False the per-part parameter fetch is skipped
-    (the N+1 call the sqlite/KiCad libraries need but a PDF/markdown-only sync
-    does not) -- each part still carries its identity + CAD refs."""
+    Every list row already carries its own `param_data`, so a full workspace
+    costs one call per page rather than one call per part. `with_parameters`
+    now only decides whether that tree is flattened into parameter columns --
+    a PDF/markdown-only sync skips the work, not a fetch.
+
+    Identity and CAD fields are read from the row first and from its
+    `metadata` overlay second: the row holds what the workspace part itself
+    sets, the overlay what it inherits from its public twin, and a part that
+    inherits its symbol still belongs in the synced library."""
     api_root, headers = _base(config)
 
     components = []
-    offset = 0
+    page = 1
     page_size = 100
 
     while True:
         resp = requests.get(
-            f"{api_root}/api/workspace/components",
+            f"{api_root}/workspace/components/",
             headers=headers,
-            params={"limit": page_size, "offset": offset},
+            params={"limit": page_size, "page": page},
             timeout=60,
         )
         _raise_for_status(resp, "workspace")
 
-        items = resp.json() or []
+        # A paginated envelope, not a bare array: the rows are under
+        # `components` and `has_next` says whether to ask for another page.
+        payload = resp.json() or {}
+        items = payload.get("components") or []
         for item in items:
             uuid = str(item.get("uuid", ""))
             all_params = (
-                _flatten_param_data(_fetch_parameters(api_root, headers, uuid))
-                if with_parameters and uuid else []
+                _flatten_param_data(item.get("param_data") or {})
+                if with_parameters else []
             )
+            # manufacturer and category live only on the overlay; part_number and
+            # the CAD refs exist on both and the row wins when it has a value.
+            meta = (item.get("metadata") or [{}])[0] or {}
             # Package/Description are promoted to their standard metadata columns;
             # drop them from the parameter list so they don't also appear as their
             # own (duplicate) columns in the SQLite tables.
@@ -137,20 +141,21 @@ def fetch_components(config, with_parameters=True):
                 "uuid": uuid,
                 "processing_status": 1,
                 "metadata": [{
-                    "part_number": item.get("part_number") or "",
-                    "description": _pick(all_params, _DESCRIPTION_KEYS),
-                    "kicad_symbol": item.get("kicad_symbol") or "",
-                    "kicad_footprint": item.get("kicad_footprint") or "",
-                    "manufacturer": item.get("manufacturer") or "",
-                    "package": _pick(all_params, _PACKAGE_KEYS),
-                    "category": item.get("category") or "",
+                    "part_number": item.get("part_number") or meta.get("part_number") or "",
+                    "description": (item.get("description") or meta.get("description")
+                                    or _pick(all_params, _DESCRIPTION_KEYS)),
+                    "kicad_symbol": item.get("kicad_symbol") or meta.get("kicad_symbol") or "",
+                    "kicad_footprint": item.get("kicad_footprint") or meta.get("kicad_footprint") or "",
+                    "manufacturer": meta.get("manufacturer") or "",
+                    "package": _pick(all_params, _PACKAGE_KEYS) or meta.get("package") or "",
+                    "category": meta.get("category") or "",
                 }],
                 "parameters": parameters,
             })
 
-        if len(items) < page_size:
+        if not payload.get("has_next"):
             break
-        offset += page_size
+        page += 1
 
     print(f"  Fetched {len(components)} components from API")
     return components
@@ -163,7 +168,7 @@ def fetch_cad_export(config):
     generated symbol are omitted by the server."""
     api_root, headers = _base(config)
     resp = requests.get(
-        f"{api_root}/api/workspace/cad-export",
+        f"{api_root}/workspace/components/cad-export/",
         headers=headers,
         timeout=120,
     )
@@ -176,7 +181,7 @@ def fetch_pdf(config, uuid):
     has no PDF available (a 404 from the server)."""
     api_root, headers = _base(config)
     resp = requests.get(
-        f"{api_root}/api/workspace/components/{uuid}/pdf",
+        f"{api_root}/workspace/components/{uuid}/download-pdf/",
         headers=headers,
         timeout=120,
     )
@@ -191,8 +196,9 @@ def fetch_markdown(config, uuid):
     has no markdown available (a 404 from the server)."""
     api_root, headers = _base(config)
     resp = requests.get(
-        f"{api_root}/api/workspace/components/{uuid}/markdown",
+        f"{api_root}/workspace/components/{uuid}/download-markdown/",
         headers=headers,
+        params={"clean": "1"},
         timeout=60,
     )
     if resp.status_code == 404:
@@ -203,12 +209,13 @@ def fetch_markdown(config, uuid):
 
 def fetch_markdown_bundle(config, uuid):
     """Zip holding the digitised markdown plus an images/ folder of its figures,
-    which the .md links by relative path. None when the part has no markdown
-    available (a 404 from the server)."""
+    which the .md links by relative path. Same route as `fetch_markdown`, asked
+    for as a zip. None when the part has no markdown available (a 404)."""
     api_root, headers = _base(config)
     resp = requests.get(
-        f"{api_root}/api/workspace/components/{uuid}/markdown-bundle",
+        f"{api_root}/workspace/components/{uuid}/download-markdown/",
         headers=headers,
+        params={"images": "zip"},
         timeout=120,
     )
     if resp.status_code == 404:
