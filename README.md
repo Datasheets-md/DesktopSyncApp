@@ -1,68 +1,72 @@
-# dBsync
+# datasheets-md (`dsmd`, dBsync)
 
-Syncs private electronic components from Datasheets.md to KiCad.
-
-## How it works
-
-1. User creates a personal API token at https://datasheets.md/integrations/api and pastes it into the app
-2. App fetches the parts in your workspace via the public REST API using the token as `Authorization: Bearer dsh_...`
-3. You pick what to synchronise with the checkboxes:
-   - **SQLite database** - the component database as a `.sqlite` file (usable by KiCad and other tools/systems)
-   - **KiCad library files** - symbols, footprints, and the KiCad database-library descriptor (needs the SQLite database)
-   - **PDF datasheets** - the original manufacturer PDFs
-   - **Markdown datasheets** - the digitised text datasheets
-4. User adds the library to KiCad
-
-## Requirements
-
-- Datasheets.md account with components
-- KiCad 7.0+
-- Python 3.9+
-
-## Usage
-
-### Download pre-built
-
-Get the latest release for your platform from GitHub Releases.
-
-### Run from source
+A git-like working copy of your [datasheets.md](https://datasheets.md) workspace:
+the parts' unified parameters, pin tables and CAD configuration as plain text
+files you can grep, edit and push back, plus the workspace's KiCad library.
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run GUI
-python3 dbsync.py
-
-# Or command line
-python3 sync_engine.py --export-static
+pipx install datasheets-md            # the dsmd CLI
+pipx install "datasheets-md[gui]"     # CLI + the dBsync desktop app (PySide6)
 ```
 
-### Add to KiCad
+## Use
 
-1. Sync your components (creates `dbsync.kicad_sym`)
-2. In KiCad: Preferences → Manage Symbol Libraries
-3. Add existing library → Select `dbsync.kicad_sym`
+```bash
+dsmd login                            # browser sign-in (DSMD_TOKEN=dsh_... for headless use)
+dsmd workspaces                       # pick one
+dsmd clone "My workspace" lib && cd lib
+dsmd status                           # what you changed
+dsmd diff                             # ... as a diff
+dsmd push -m "Fix VOH typ from page 5"
+dsmd pull                             # server changes, merged row by row
+dsmd log [PART]                       # server-side history
+dsmd part add SN74HC00N [--manufacturer TI]
+dsmd part rm SN74HC00N
+dsmd pdf SN74HC00N                    # PDF into .dsmd/cache/
+dsmd open SN74HC00N                   # the part's web page
+dsmd gui                              # the desktop app (needs the [gui] extra)
+dsmd help agents                      # the guide for AI agents
+```
 
-## Files created
+Every command takes `--json`, `--quiet` and `-C <dir>`. Exit codes: `0` ok,
+`1` error, `2` done but with conflicts or stale/rejected parts.
 
-Depending on which checkboxes are enabled, in the output folder:
+`DSMD_SERVER` (or `--server`) points at another instance, e.g.
+`https://api-dev.datasheets.md`.
 
-- `dbsync.sqlite` - the component database (SQLite)
-- `datasheets.kicad_sym` - KiCad symbol library
-- `datasheets.pretty/` - KiCad footprints (one `.kicad_mod` per part)
-- `dbsync.kicad_dbl`, `sym-lib-table`, `fp-lib-table` - KiCad database-library descriptor + project lib tables
-- `pdf/` - original manufacturer PDF datasheets
-- `markdown/` - digitised text datasheets
+## The working copy
 
-`dbsync.json` (next to the app) holds the configuration.
+```
+.dsmd/                        state, pristine base copies, cache (gitignored)
+dsmd.toml                     what to pull, which library outputs to build
+settings/mapping.yaml         read-only
+settings/symbol_style.yaml    read-only
+parts/<MFR>/<PN>/
+  part.yaml                   identity (read-only)
+  parameters.jsonl            unified parameters, one row per line  -- editable
+  pins.csv                    physical pins, one per line           -- editable
+  cad.yaml                    CAD configuration                     -- editable
+  datasheet.md                digitised datasheet (read-only)
+library/                      generated KiCad library (rebuilt on pull)
+  datasheets.sqlite, datasheets.kicad_dbl, datasheets.kicad_sym,
+  datasheets.pretty/, sym-lib-table, fp-lib-table
+```
 
-## Configuration
+How it differs from git: one remote, no branches, no staging or local commits.
+`push` is applied atomically per part; the server may normalise what you
+pushed and sends the result straight back. Merges are by row key (`k`) and pin
+`id`, so edits to different rows never conflict. History lives on the server.
 
-The app connects to the public Datasheets.md REST API under `https://datasheets.md/api/v1`
-(override the server in the app for dev or self-hosted instances -- the dev
-instance answers at `https://api-dev.datasheets.md`). The API is documented at
-https://datasheets.md/api/v1/docs/.
+To use the library in KiCad, open `library/` as a project folder (the lib
+tables point at the symbols and footprints) or add `datasheets.kicad_dbl`
+as a database library (needs the SQLite ODBC driver).
 
-The API token is saved locally in `dbsync.json` after you click Test or Sync. Revoke
-it any time at https://datasheets.md/integrations/api if a device is lost.
+## Develop
+
+```bash
+pip install -e ".[gui,test]"
+pytest
+```
+
+Standalone dBsync binaries (no Python needed) are built by
+`.github/workflows/build.yml` with PyInstaller from `packaging/dbsync.py`.

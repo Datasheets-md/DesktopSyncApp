@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datasheets-md"
+dynamic = ["version"]
+description = "dsmd: a git-like working copy of your datasheets.md workspace (parameters, pins, CAD config, KiCad library)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "datasheets.md" }]
+dependencies = [
+    "requests>=2.31",
+    "platformdirs>=3",
+    "pyyaml>=6",
+    "tomli>=2; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+test = ["pytest>=8"]
+
+[project.scripts]
+dsmd = "datasheets_md.cli:main"
+datasheets-md = "datasheets_md.cli:main"
+
+[project.urls]
+Homepage = "https://datasheets.md"
+
+[tool.setuptools.dynamic]
+version = { attr = "datasheets_md.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+datasheets_md = ["agents.md", "gui/icon.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

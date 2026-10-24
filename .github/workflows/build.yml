@@ -24,21 +24,20 @@ jobs:
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install ".[gui]" pyinstaller
 
       - name: Read version
         id: version
         shell: bash
-        run: echo "value=$(python -c 'from version import __version__; print(__version__)')" >> "$GITHUB_OUTPUT"
+        run: echo "value=$(python -c 'import datasheets_md; print(datasheets_md.__version__)')" >> "$GITHUB_OUTPUT"
 
       - name: Build (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           python -m PyInstaller --onefile --windowed --name dBsync \
-            --add-data "dbsync.json:." \
-            --add-data "icon.png:." \
-            --icon icon.png \
-            --clean dbsync.py
+            --add-data "src/datasheets_md/gui/icon.png:." \
+            --icon src/datasheets_md/gui/icon.png \
+            --clean packaging/dbsync.py
           chmod +x dist/dBsync
           mv dist/dBsync "dist/dBsync-${{ steps.version.outputs.value }}"
 
@@ -60,8 +59,8 @@ jobs:
           Comment=Sync components from Datasheets.md to KiCad
           EOF
           cp "$APPDIR/dBsync.desktop" "$APPDIR/usr/share/applications/"
-          cp icon.png "$APPDIR/dbsync.png"
-          cp icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/dbsync.png"
+          cp src/datasheets_md/gui/icon.png "$APPDIR/dbsync.png"
+          cp src/datasheets_md/gui/icon.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/dbsync.png"
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
@@ -74,10 +73,9 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           python -m PyInstaller --onedir --windowed --name dBsync \
-            --add-data "dbsync.json:." \
-            --add-data "icon.png:." \
+            --add-data "src/datasheets_md/gui/icon.png:." \
             --icon icon-windowed.icns \
-            --clean dbsync.py
+            --clean packaging/dbsync.py
           rm -rf dist/dBsync
           mv dist/dBsync.app "dist/dBsync-${{ steps.version.outputs.value }}.app"
           ( cd dist && zip -ry "dBsync-${{ steps.version.outputs.value }}.zip" "dBsync-${{ steps.version.outputs.value }}.app" )
@@ -87,10 +85,9 @@ jobs:
         shell: bash
         run: |
           python -m PyInstaller --onefile --windowed --name dBsync \
-            --add-data "dbsync.json;." \
-            --add-data "icon.png;." \
+            --add-data "src/datasheets_md/gui/icon.png;." \
             --icon icon.ico \
-            --clean dbsync.py
+            --clean packaging/dbsync.py
           mv dist/dBsync.exe "dist/dBsync-${{ steps.version.outputs.value }}.exe"
 
       - name: Upload Linux artifact
