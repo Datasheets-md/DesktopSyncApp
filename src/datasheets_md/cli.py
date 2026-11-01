@@ -191,7 +191,7 @@ def cmd_gui(args, out):
     try:
         from .gui.app import main as gui_main
     except ImportError as exc:
-        raise RepoError(f'the GUI needs PySide6: pip install "datasheets-md[gui]" ({exc})') from None
+        raise RepoError(f'the GUI needs PySide6: pip install datasheets-md-gui ({exc})') from None
     return gui_main()
 
 
@@ -261,7 +261,7 @@ def parser():
     prm.add_argument("--yes", "-y", action="store_true", help="do not ask")
     add("pdf", cmd_pdf, "download a part's PDF into .dsmd/cache and print its path").add_argument("part")
     add("open", cmd_open, "open a part's web page").add_argument("part")
-    add("gui", cmd_gui, "launch the desktop app (needs the [gui] extra)")
+    add("gui", cmd_gui, "launch the desktop app (needs datasheets-md-gui)")
     add("help", cmd_help, "extra help topics").add_argument("topic", choices=["agents"])
     return p
 

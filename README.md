@@ -5,9 +5,19 @@ the parts' unified parameters, pin tables and CAD configuration as plain text
 files you can grep, edit and push back, plus the workspace's KiCad library.
 
 ```bash
-pipx install datasheets-md            # the dsmd CLI
-pipx install "datasheets-md[gui]"     # CLI + the dBsync desktop app (PySide6)
+pip install datasheets-md             # the dsmd CLI
+pip install datasheets-md-gui         # CLI + the dBsync desktop app (adds PySide6 to an existing install)
 ```
+
+Ubuntu/Debian refuse a system-wide `pip install` ("externally-managed-environment").
+Install into a venv and link the command onto your PATH:
+
+```bash
+python3 -m venv ~/.venvs/dsmd && ~/.venvs/dsmd/bin/pip install datasheets-md
+ln -s ~/.venvs/dsmd/bin/dsmd ~/.local/bin/dsmd
+```
+
+or let pipx do both: `pipx install datasheets-md`.
 
 ## Use
 

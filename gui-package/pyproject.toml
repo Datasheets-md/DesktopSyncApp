@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+# Code-free wrapper: `pip install datasheets-md-gui` = datasheets-md + PySide6.
+# Version and pin move in lockstep with datasheets_md.__version__
+# (tests/test_gui_package.py enforces it).
+[project]
+name = "datasheets-md-gui"
+version = "2.0.0a2"
+description = "dBsync, the desktop app for datasheets-md (dsmd): installs datasheets-md with the PySide6 GUI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "datasheets.md" }]
+dependencies = ["datasheets-md[gui]==2.0.0a2"]
+
+[project.gui-scripts]
+dsmd-gui = "datasheets_md.gui.app:main"
+
+[project.urls]
+Homepage = "https://datasheets.md"
+
+[tool.setuptools]
+packages = []
