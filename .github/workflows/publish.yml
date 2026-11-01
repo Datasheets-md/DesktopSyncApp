@@ -1,0 +1,78 @@
+name: Publish to PyPI
+
+# Trusted Publishing (OIDC): no API token. Each index has a publisher bound to
+# this repo, this workflow file and a GitHub environment:
+#   test.pypi.org -> environment pypi-test (manual dispatch, target=testpypi)
+#   pypi.org      -> environment pypi      (a v* tag, or dispatch target=pypi)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Package index
+        type: choice
+        options: [testpypi, pypi]
+        default: testpypi
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Test
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[test]"
+          pytest
+
+      - name: Build sdist and wheel
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi-test
+      url: https://test.pypi.org/p/datasheets-md
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    if: github.event_name == 'push' || inputs.target == 'pypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/datasheets-md
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
