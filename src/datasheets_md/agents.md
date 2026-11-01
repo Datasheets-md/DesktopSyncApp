@@ -22,9 +22,12 @@ shell; add `--json` to any command for machine-readable output.
 - Keep `k` (parameters.jsonl) and `id` (pins.csv) unchanged on rows you edit;
   they are how the server knows which row you mean. A new row has no `k`; a
   new pin has an empty `id`.
-- When you correct a value from the PDF, set `source` to the element you read
-  it from: `"source": {"element_id": "<id>"}`. `dsmd pdf <part>` downloads
-  the PDF; `datasheet.md` is its digitised text.
+- `datasheet.md` is the digitised PDF. Its `{{para:<id> ...}}`,
+  `{{table:<id> ...}}`, `{{row:<id> ...}}` and `{{figure:<id> ...}}` markers
+  carry the element ids that a row's `source.element_id` cites; figures are
+  PNGs in `images/` next to it. `dsmd pdf <part>` downloads the original PDF.
+- When you correct a value, set `source` to the element you read it from:
+  `"source": {"element_id": "<id>"}`.
 - To confirm a row is right, change its `review` from `unchecked` to
   `confirmed`. Unconfirming is not supported.
 - Never edit `library/` (generated), `part.yaml`, `datasheet.md` or

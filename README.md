@@ -56,7 +56,8 @@ parts/<MFR>/<PN>/
   parameters.jsonl            unified parameters, one row per line  -- editable
   pins.csv                    physical pins, one per line           -- editable
   cad.yaml                    CAD configuration                     -- editable
-  datasheet.md                digitised datasheet (read-only)
+  datasheet.md                digitised datasheet with its element ids (read-only)
+  images/                     the figures datasheet.md links to (read-only)
 library/                      generated KiCad library (rebuilt on pull)
   datasheets.sqlite, datasheets.kicad_dbl, datasheets.kicad_sym,
   datasheets.pretty/, sym-lib-table, fp-lib-table

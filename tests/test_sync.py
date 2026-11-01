@@ -150,6 +150,23 @@ def test_markdown_off_drops_datasheet_md(repo, server):
     sync.pull(repo, server)
     assert not repo.working(f"{PATH}/datasheet.md").exists()
     assert "datasheet.md" not in repo.parts()[PART]["files"]
+    assert not repo.working(f"{PATH}/images").exists()
+
+
+def test_markdown_comes_with_its_figures_and_follows_server_changes(repo, server):
+    images = repo.working(f"{PATH}/images")
+    assert (images / "ff44.png").read_bytes() == b"PNG1"
+    assert "{{figure:ff44" in repo.read(repo.working(f"{PATH}/datasheet.md"))
+    assert sync.status(repo)["clean"]
+    part = server.parts[PART]
+    part["files"]["datasheet.md"] += "{{figure:aa11 bbox=0,0,1,1}}\n![Pins](images/aa11.png)\n"
+    part["images"] = {"aa11.png": b"PNG2"}
+    sync.pull(repo, server)
+    assert sorted(p.name for p in images.iterdir()) == ["aa11.png"]
+    assert "aa11" in repo.read(repo.working(f"{PATH}/datasheet.md"))
+    server.parts.clear()
+    sync.pull(repo, server)
+    assert not repo.working(PATH).exists()
 
 
 def test_cli_status_json(repo, capsys):

@@ -1,5 +1,8 @@
 import hashlib
+import io
 import json
+import zipfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -34,8 +37,8 @@ class FakeServer:
                                       row("c3", "Icc", "20", section="power")),
             "pins.csv": "id,number,name,etype,on_symbol,description\npin-a,1,IN,input,true,\npin-b,2,OUT,output,true,\n",
             "cad.yaml": "footprint: {}\npackage_id: null\nsymbol: {}\n",
-            "datasheet.md": "# SN74HC00N\n",
-        }}}
+            "datasheet.md": "# SN74HC00N\n{{figure:ff44 bbox=0,0,1,1}}\n![Pinout](images/ff44.png)\n",
+        }, "images": {"ff44.png": b"PNG1"}}}
         self.settings = {"settings/mapping.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
         self.pushes = []
         self.reject = None
@@ -43,7 +46,7 @@ class FakeServer:
     def _files(self):
         out = {p: t for p, t in self.settings.items()}
         for part in self.parts.values():
-            out.update({f"{part['path']}/{n}": t for n, t in part["files"].items()})
+            out.update({f"{part['path']}/{n}": t for n, t in part["files"].items() if n != "datasheet.md"})
         return out
 
     def get(self, path, params=None, **_):
@@ -52,6 +55,17 @@ class FakeServer:
                     "settings": {p: etag(t) for p, t in self.settings.items()},
                     "parts": [{"uuid": u, "path": p["path"], "files": {n: etag(t) for n, t in p["files"].items()}}
                               for u, p in self.parts.items()]}
+        if path.endswith("/download-markdown/"):
+            assert params == {"images": "zip", "metadata": "keep"}
+            part = self.parts.get(path.split("/")[3])
+            if part is None or "datasheet.md" not in part["files"]:
+                raise ApiError("Component not found.", 404)
+            buffer = io.BytesIO()
+            with zipfile.ZipFile(buffer, "w") as archive:
+                archive.writestr("SN74HC00N_x.md", part["files"]["datasheet.md"])
+                for name, data in part.get("images", {}).items():
+                    archive.writestr(f"images/{name}", data)
+            return SimpleNamespace(content=buffer.getvalue())
         if path == "/workspace/components/":
             return {"components": [], "has_next": False}
         if path == "/workspace/components/cad-export/":

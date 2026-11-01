@@ -5,10 +5,13 @@ for progress lines, and returns plain data the CLI prints (or serialises with
 --json) and the GUI shows. Nothing here prints by itself.
 """
 import difflib
+import io
 import json
 import os
 import shutil
 import webbrowser
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 import yaml
 
@@ -22,6 +25,7 @@ BATCH_FILES = 100
 BATCH_PARTS = 20
 EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml")
 MARKDOWN = "datasheet.md"
+IMAGES = "images"               # the figures datasheet.md links to, next to it
 LIBRARY_DIR = "library"
 
 
@@ -44,6 +48,36 @@ def _download(client, paths, say=_quiet):
         if len(paths) > BATCH_FILES:
             say(f"  downloaded {min(start + BATCH_FILES, len(paths))}/{len(paths)} files")
     return out
+
+
+def _markdown(client, uuids):
+    """{uuid: (datasheet.md text, {png name: bytes})} from the markdown download with
+    its figures and every element-id sentinel kept, 8 parts at a time. A part
+    whose markdown is gone since the manifest is left out."""
+    def one(uuid):
+        try:
+            resp = client.get(f"/workspace/components/{uuid}/download-markdown/",
+                              params={"images": "zip", "metadata": "keep"}, raw=True)
+        except ApiError as exc:
+            if exc.status == 404:
+                return uuid, None
+            raise
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as archive:
+            names = archive.namelist()
+            md = next(n for n in names if "/" not in n and n.endswith(".md"))
+            images = {n[len(IMAGES) + 1:]: archive.read(n) for n in names
+                      if n.startswith(IMAGES + "/") and not n.endswith("/")}
+            return uuid, (archive.read(md).decode("utf-8"), images)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return {uuid: got for uuid, got in pool.map(one, uuids) if got}
+
+
+def _put_images(folder, images):
+    """Replace a part's images/ folder with these PNGs (read-only, never merged)."""
+    shutil.rmtree(folder, ignore_errors=True)
+    for name, data in images.items():
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(data)
 
 
 def _wanted(repo, files):
@@ -81,10 +115,15 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
                 wanted[f"{part['path']}/{name}"] = (part["uuid"], name, etag)
         wanted.update({path: (None, path, etag) for path, etag in manifest["settings"].items()})
         say(f"Cloning {workspace['name']} ({len(manifest['parts'])} parts, {len(wanted)} files) into {repo.root}")
-        files = _download(client, list(wanted), say)
+        files = _download(client, [p for p, w in wanted.items() if w[1] != MARKDOWN], say)
+        md = _markdown(client, [w[0] for w in wanted.values() if w[1] == MARKDOWN])
         for part in manifest["parts"]:
             repo.state["parts"][part["uuid"]] = {"path": part["path"], "files": {}}
-        for path, (uuid, name, _) in wanted.items():
+        for path, (uuid, name, etag) in wanted.items():
+            if name == MARKDOWN and uuid in md:
+                text, images = md[uuid]
+                files[path] = {"etag": etag, "content": text}
+                _put_images(repo.working(path).parent / IMAGES, images)
             got = files.get(path)
             if got is None:
                 continue
@@ -104,18 +143,25 @@ def fetch(repo, client, say=_quiet):
     """Download what changed on the server into .dsmd/incoming/ (not the working copy)."""
     manifest = _manifest(client, repo)
     known = repo.parts()
-    wanted = {}
+    wanted, md_etags = {}, {}
     for part in manifest["parts"]:
         have = known.get(part["uuid"], {}).get("files", {})
         for name, etag in _wanted(repo, part["files"]).items():
             if have.get(name) != etag:
                 wanted[f"{part['path']}/{name}"] = f"{part['uuid']}/{name}"
+                if name == MARKDOWN:
+                    md_etags[part["uuid"]] = etag
     for path, etag in manifest["settings"].items():
         if repo.state["settings"].get(path) != etag:
             wanted[path] = path
-    files = _download(client, list(wanted), say) if wanted else {}
+    plain = [path for path, key in wanted.items() if not key.endswith("/" + MARKDOWN)]
+    files = _download(client, plain, say) if plain else {}
     incoming = repo.dot / "incoming"
     shutil.rmtree(incoming, ignore_errors=True)
+    for uuid, (text, images) in _markdown(client, list(md_etags)).items():
+        path = next(p for p, k in wanted.items() if k == f"{uuid}/{MARKDOWN}")
+        files[path] = {"etag": md_etags[uuid], "content": text}
+        _put_images(repo.incoming(f"{uuid}/{IMAGES}"), images)
     for path, key in wanted.items():
         if path in files:
             repo.write(repo.incoming(key), files[path]["content"])
@@ -181,6 +227,8 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
                 rel = f"{entry['path']}/{name}"
                 repo.remove(rel, working=_unmodified(repo, rel))
                 del entry["files"][name]
+                if name == MARKDOWN:
+                    shutil.rmtree(repo.working(f"{entry['path']}/{IMAGES}"), ignore_errors=True)
         for name in wanted:
             key = f"{uuid}/{name}"
             if key not in pending:
@@ -188,6 +236,11 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
             rel = f"{entry['path']}/{name}"
             _merge_into(repo, rel, name, repo.read(repo.incoming(key)), name in EDITABLE, report)
             entry["files"][name] = pending[key]
+            if name == MARKDOWN:
+                folder = repo.working(f"{entry['path']}/{IMAGES}")
+                shutil.rmtree(folder, ignore_errors=True)
+                if repo.incoming(f"{uuid}/{IMAGES}").is_dir():
+                    shutil.copytree(repo.incoming(f"{uuid}/{IMAGES}"), folder)
     for path in manifest["settings"]:
         if path in pending:
             _merge_into(repo, path, path, repo.read(repo.incoming(path)), False, report)
@@ -196,6 +249,8 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     for uuid in gone:
         entry = parts.pop(uuid)
         dirty = [n for n in entry["files"] if not _unmodified(repo, f"{entry['path']}/{n}")]
+        if not dirty:
+            shutil.rmtree(repo.working(f"{entry['path']}/{IMAGES}"), ignore_errors=True)
         for name in entry["files"]:
             repo.remove(f"{entry['path']}/{name}", working=not dirty)
         if dirty:
