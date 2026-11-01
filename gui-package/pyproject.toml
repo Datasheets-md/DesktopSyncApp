@@ -7,13 +7,17 @@ build-backend = "setuptools.build_meta"
 # (tests/test_gui_package.py enforces it).
 [project]
 name = "datasheets-md-gui"
-version = "2.0.0a2"
+version = "2.0.0a3"
 description = "dBsync, the desktop app for datasheets-md (dsmd): installs datasheets-md with the PySide6 GUI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 authors = [{ name = "datasheets.md" }]
-dependencies = ["datasheets-md[gui]==2.0.0a2"]
+dependencies = ["datasheets-md[gui]==2.0.0a3"]
+
+# Declared here too: pipx exposes only the installed package's own commands.
+[project.scripts]
+dsmd = "datasheets_md.cli:main"
 
 [project.gui-scripts]
 dsmd-gui = "datasheets_md.gui.app:main"
