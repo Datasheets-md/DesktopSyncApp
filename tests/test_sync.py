@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import PART, PATH, etag
+from conftest import PART, PATH, SHEET, etag
 
 from datasheets_md import cli, sync
 from datasheets_md.repo import Repo, RepoError
@@ -98,7 +98,7 @@ def test_settings_merge_by_key_on_pull(repo, server):
     assert "pin_length: 2" in text and "ICs: U" in text
 
 
-def test_push_refuses_read_only_edits(repo, server):
+    repo.write(repo.working(f"{PATH}/part.yaml"), "mine\n")
     repo.write(repo.working(f"{PATH}/datasheet.md"), "mine\n")
     repo.write(repo.working(f"{PATH}/pins.csv"), "changed\n")
     with pytest.raises(sync.PushRefused):
@@ -167,28 +167,52 @@ def test_pull_keeps_a_removed_part_with_local_edits(repo, server):
     assert sync.status(repo)["untracked"] == [PATH]
 
 
-def test_markdown_off_drops_datasheet_md(repo, server):
+def test_markdown_off_drops_the_datasheets(repo, server):
     repo.set_config(markdown=False)
     sync.pull(repo, server)
-    assert not repo.working(f"{PATH}/datasheet.md").exists()
-    assert "datasheet.md" not in repo.parts()[PART]["files"]
-    assert not repo.working(f"{PATH}/images").exists()
+    assert not repo.working("datasheets").exists() and repo.state["datasheets"] == {}
 
 
-def test_markdown_comes_with_its_figures_and_follows_server_changes(repo, server):
-    images = repo.working(f"{PATH}/images")
+def test_datasheet_is_one_folder_shared_by_the_family(repo, server):
+    images = repo.working(f"{SHEET}/images")
     assert (images / "ff44.png").read_bytes() == b"PNG1"
-    assert "{{figure:ff44" in repo.read(repo.working(f"{PATH}/datasheet.md"))
+    assert "{{figure:ff44" in repo.read(repo.working(f"{SHEET}/datasheet.md"))
+    assert not repo.working(f"{PATH}/datasheet.md").exists() and not repo.working(f"{PATH}/images").exists()
     assert sync.status(repo)["clean"]
-    part = server.parts[PART]
-    part["files"]["datasheet.md"] += "{{figure:aa11 bbox=0,0,1,1}}\n![Pins](images/aa11.png)\n"
-    part["images"] = {"aa11.png": b"PNG2"}
-    sync.pull(repo, server)
+    sheet = server.datasheets[SHEET]
+    sheet["text"] += "{{figure:aa11 bbox=0,0,1,1}}\n![Pins](images/aa11.png)\n"
+    sheet["images"] = {"aa11.png": b"PNG2"}
+    assert sync.pull(repo, server)["changed_datasheets"] == 1
     assert sorted(p.name for p in images.iterdir()) == ["aa11.png"]
-    assert "aa11" in repo.read(repo.working(f"{PATH}/datasheet.md"))
-    server.parts.clear()
+    assert "aa11" in repo.read(repo.working(f"{SHEET}/datasheet.md"))
+    assert sync.pull(repo, server)["changed_datasheets"] == 0
+    server.datasheets.clear()
     sync.pull(repo, server)
-    assert not repo.working(PATH).exists()
+    assert not repo.working("datasheets").exists() and not repo.base("datasheets").exists()
+
+
+def test_edited_datasheet_is_read_only(repo, server):
+    rel = f"{SHEET}/datasheet.md"
+    repo.write(repo.working(rel), "mine\n")
+    assert sync.status(repo)["datasheets"] == [{"path": rel, "state": "read-only-edited"}]
+    assert rel in sync._selected(repo, None)
+    with pytest.raises(sync.PushRefused):
+        sync.push(repo, server, "x")
+    server.datasheets[SHEET]["text"] += "more\n"
+    assert sync.pull(repo, server)["saved_local"] == [rel + ".local"]
+    assert repo.read(repo.working(rel)) == server.datasheets[SHEET]["text"]
+
+
+def test_pull_drops_the_per_part_copies_of_an_older_clone(repo, server):
+    rel = f"{PATH}/datasheet.md"
+    repo.put(rel, "old copy\n")
+    repo.write(repo.working(f"{PATH}/images/ff44.png"), "PNG")
+    repo.state["parts"][PART]["files"]["datasheet.md"] = "R1:mdk"
+    repo.save()
+    sync.pull(repo, server)
+    assert not repo.working(rel).exists() and not repo.base(rel).exists()
+    assert not repo.working(f"{PATH}/images").exists()
+    assert "datasheet.md" not in repo.parts()[PART]["files"] and repo.working(f"{PATH}/pins.csv").exists()
 
 
 def test_cli_status_json(repo, capsys):

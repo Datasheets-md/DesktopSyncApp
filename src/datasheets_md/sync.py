@@ -25,7 +25,7 @@ BATCH_FILES = 100
 BATCH_PARTS = 20
 SETTINGS = ("settings/mapping.yaml", "settings/symbol_style.yaml")
 EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml", *SETTINGS)
-MARKDOWN = "datasheet.md"
+MARKDOWN = "datasheet.md"      # one per family datasheet folder (datasheets/<manufacturer>/<pdf name>/)
 IMAGES = "images"               # the figures datasheet.md links to, next to it
 LIBRARY_DIR = "library"
 
@@ -64,48 +64,59 @@ def _download(client, paths, say=_quiet):
     return out
 
 
-def _markdown(client, uuids, say=_quiet):
-    """{uuid: (datasheet.md text, {png name: bytes})} from the markdown download with
-    its figures and every element-id sentinel kept, 8 parts at a time. A part
-    whose markdown is gone since the manifest is left out."""
-    def one(uuid):
+def _markdown(client, folders, say=_quiet):
+    """{folder: (datasheet.md text, {png name: bytes})} for {folder: part uuid}: the
+    family's stored document with its figures and every element-id sentinel kept,
+    downloaded through one of its parts, 8 at a time. A datasheet gone since the
+    manifest is left out."""
+    def one(folder, uuid):
         try:
             resp = client.get(f"/workspace/components/{uuid}/download-markdown/",
-                              params={"images": "zip", "metadata": "keep"}, raw=True)
+                              params={"images": "zip", "metadata": "keep", "title": "omit"}, raw=True)
         except ApiError as exc:
             if exc.status == 404:
-                return uuid, None
+                return folder, None
             raise
         with zipfile.ZipFile(io.BytesIO(resp.content)) as archive:
             names = archive.namelist()
             md = next(n for n in names if "/" not in n and n.endswith(".md"))
             images = {n[len(IMAGES) + 1:]: archive.read(n) for n in names
                       if n.startswith(IMAGES + "/") and not n.endswith("/")}
-            return uuid, (archive.read(md).decode("utf-8"), images)
+            return folder, (archive.read(md).decode("utf-8"), images)
     out = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        for done, future in enumerate(as_completed([pool.submit(one, u) for u in uuids]), 1):
-            uuid, got = future.result()
+        futures = [pool.submit(one, folder, uuid) for folder, uuid in folders.items()]
+        for done, future in enumerate(as_completed(futures), 1):
+            folder, got = future.result()
             if got:
-                out[uuid] = got
-            if len(uuids) <= 20 or done % 10 == 0 or done == len(uuids):
-                say(f"  datasheets {done}/{len(uuids)}")
+                out[folder] = got
+            if len(folders) <= 20 or done % 10 == 0 or done == len(folders):
+                say(f"  datasheets {done}/{len(folders)}")
     return out
 
 
 def _put_images(folder, images):
-    """Replace a part's images/ folder with these PNGs (read-only, never merged)."""
+    """Replace a datasheet's images/ folder with these PNGs (read-only, never merged)."""
     shutil.rmtree(folder, ignore_errors=True)
     for name, data in images.items():
         folder.mkdir(parents=True, exist_ok=True)
         (folder / name).write_bytes(data)
 
 
-def _wanted(repo, files):
-    """The manifest's files minus what dsmd.toml says not to pull."""
-    if repo.config()["markdown"]:
-        return files
+def _wanted(files):
+    """A part's manifest files minus datasheet.md, which revisions recorded before
+    the shared datasheet folders still list per part."""
     return {name: etag for name, etag in files.items() if name != MARKDOWN}
+
+
+def _datasheets(repo, manifest):
+    """{folder: {etag, part}} the server lists, or {} when dsmd.toml turns markdown off."""
+    return (manifest.get("datasheets") or {}) if repo.config()["markdown"] else {}
+
+
+def _sheets(repo):
+    """{folder: etag} of the datasheets in the working copy."""
+    return repo.state.setdefault("datasheets", {})
 
 
 # ----- clone ---------------------------------------------------------------------------
@@ -134,20 +145,22 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
         _say_pending(manifest, say)
         wanted = {}
         for part in manifest["parts"]:
-            for name, etag in _wanted(repo, part["files"]).items():
+            for name, etag in _wanted(part["files"]).items():
                 wanted[f"{part['path']}/{name}"] = (part["uuid"], name, etag)
         wanted.update({path: (None, path, etag) for path, etag in manifest["settings"].items()})
-        say(f"Cloning {workspace['name']} ({len(manifest['parts'])} parts, {len(wanted)} files) into {repo.root}")
-        files = _download(client, [p for p, w in wanted.items() if w[1] != MARKDOWN], say)
-        md = _markdown(client, [w[0] for w in wanted.values() if w[1] == MARKDOWN], say)
+        sheets = _datasheets(repo, manifest)
+        say(f"Cloning {workspace['name']} ({len(manifest['parts'])} parts, {len(wanted)} files, "
+            f"{len(sheets)} datasheets) into {repo.root}")
+        files = _download(client, list(wanted), say)
+        md = _markdown(client, {folder: sheet["part"] for folder, sheet in sheets.items()}, say)
         say("Writing files...")
+        for folder, (text, images) in md.items():
+            repo.put(f"{folder}/{MARKDOWN}", text)
+            _put_images(repo.working(folder) / IMAGES, images)
+            _sheets(repo)[folder] = sheets[folder]["etag"]
         for part in manifest["parts"]:
             repo.state["parts"][part["uuid"]] = {"path": part["path"], "files": {}}
         for path, (uuid, name, etag) in wanted.items():
-            if name == MARKDOWN and uuid in md:
-                text, images = md[uuid]
-                files[path] = {"etag": etag, "content": text}
-                _put_images(repo.working(path).parent / IMAGES, images)
             got = files.get(path)
             if got is None:
                 continue
@@ -158,7 +171,8 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
                 repo.state["settings"][path] = got["etag"]
         repo.save()
         build_library(repo, client, say)
-    return {"root": str(repo.root), "workspace": workspace, "parts": len(manifest["parts"]), "files": len(files)}
+    return {"root": str(repo.root), "workspace": workspace, "parts": len(manifest["parts"]), "files": len(files),
+            "datasheets": len(md)}
 
 
 # ----- fetch / pull ----------------------------------------------------------------------
@@ -169,36 +183,38 @@ def fetch(repo, client, say=_quiet):
     manifest = _manifest(client, repo, incremental=True)
     _say_pending(manifest, say)
     known = repo.parts()
-    wanted, md_etags = {}, {}
+    wanted = {}
     for part in manifest["parts"]:
         have = known.get(part["uuid"], {}).get("files", {})
-        for name, etag in _wanted(repo, part["files"]).items():
+        for name, etag in _wanted(part["files"]).items():
             if have.get(name) != etag:
                 wanted[f"{part['path']}/{name}"] = f"{part['uuid']}/{name}"
-                if name == MARKDOWN:
-                    md_etags[part["uuid"]] = etag
     for path, etag in manifest["settings"].items():
         if repo.state["settings"].get(path) != etag:
             wanted[path] = path
-    plain = [path for path, key in wanted.items() if not key.endswith("/" + MARKDOWN)]
-    files = _download(client, plain, say) if plain else {}
+    files = _download(client, list(wanted), say) if wanted else {}
     incoming = repo.dot / "incoming"
     shutil.rmtree(incoming, ignore_errors=True)
-    for uuid, (text, images) in _markdown(client, list(md_etags), say).items():
-        path = next(p for p, k in wanted.items() if k == f"{uuid}/{MARKDOWN}")
-        files[path] = {"etag": md_etags[uuid], "content": text}
-        _put_images(repo.incoming(f"{uuid}/{IMAGES}"), images)
     for path, key in wanted.items():
         if path in files:
             repo.write(repo.incoming(key), files[path]["content"])
     pending = {key: files[path]["etag"] for path, key in wanted.items() if path in files}
-    repo.write(incoming / "manifest.json", json.dumps({"manifest": manifest, "pending": pending}))
+    sheets, have = _datasheets(repo, manifest), _sheets(repo)
+    changed = {folder: sheet["part"] for folder, sheet in sheets.items() if have.get(folder) != sheet["etag"]}
+    pending_sheets = {}
+    for folder, (text, images) in _markdown(client, changed, say).items():
+        repo.write(repo.incoming(f"{folder}/{MARKDOWN}"), text)
+        _put_images(repo.incoming(f"{folder}/{IMAGES}"), images)
+        pending_sheets[folder] = sheets[folder]["etag"]
+    repo.write(incoming / "manifest.json", json.dumps({"manifest": manifest, "pending": pending,
+                                                       "datasheets": pending_sheets}))
     new = [p for p in manifest["parts"] if p["uuid"] not in known]
     gone = _gone(manifest, known)
     moved = [p for p in manifest["parts"] if p["uuid"] in known and known[p["uuid"]]["path"] != p["path"]]
     changed_parts = {key.split("/", 1)[0] for key in pending if "/" in key and not key.startswith("settings/")}
     return {"changed_files": len(pending), "changed_parts": len(changed_parts - {p["uuid"] for p in new}),
-            "new_parts": len(new), "removed_parts": len(gone), "moved_parts": len(moved)}
+            "new_parts": len(new), "removed_parts": len(gone), "moved_parts": len(moved),
+            "changed_datasheets": len(pending_sheets)}
 
 
 def _gone(manifest, known):
@@ -243,6 +259,7 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     manifest, pending = saved["manifest"], saved["pending"]
     report = {**summary, "conflicts": [], "merged": [], "saved_local": [], "kept": [], "warnings": []}
     parts = repo.parts()
+    _drop_part_copies(repo, report)
     for part in manifest["parts"]:
         uuid = part["uuid"]
         entry = parts.get(uuid)
@@ -255,14 +272,12 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
                 continue
         if entry is None:
             entry = parts[uuid] = {"path": part["path"], "files": {}}
-        wanted = _wanted(repo, part["files"])
+        wanted = _wanted(part["files"])
         for name in list(entry["files"]):
             if name not in wanted:                          # the server no longer has this file
                 rel = f"{entry['path']}/{name}"
                 repo.remove(rel, working=_unmodified(repo, rel))
                 del entry["files"][name]
-                if name == MARKDOWN:
-                    shutil.rmtree(repo.working(f"{entry['path']}/{IMAGES}"), ignore_errors=True)
         for name in wanted:
             key = f"{uuid}/{name}"
             if key not in pending:
@@ -270,20 +285,14 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
             rel = f"{entry['path']}/{name}"
             _merge_into(repo, rel, name, repo.read(repo.incoming(key)), name in EDITABLE, report)
             entry["files"][name] = pending[key]
-            if name == MARKDOWN:
-                folder = repo.working(f"{entry['path']}/{IMAGES}")
-                shutil.rmtree(folder, ignore_errors=True)
-                if repo.incoming(f"{uuid}/{IMAGES}").is_dir():
-                    shutil.copytree(repo.incoming(f"{uuid}/{IMAGES}"), folder)
     for path in manifest["settings"]:
         if path in pending:
             _merge_into(repo, path, path, repo.read(repo.incoming(path)), path in EDITABLE, report)
             repo.state["settings"][path] = pending[path]
+    _pull_datasheets(repo, _datasheets(repo, manifest), saved.get("datasheets") or {}, report)
     for uuid in _gone(manifest, parts):
         entry = parts.pop(uuid)
         dirty = [n for n in entry["files"] if not _unmodified(repo, f"{entry['path']}/{n}")]
-        if not dirty:
-            shutil.rmtree(repo.working(f"{entry['path']}/{IMAGES}"), ignore_errors=True)
         for name in entry["files"]:
             repo.remove(f"{entry['path']}/{name}", working=not dirty)
         if dirty:
@@ -297,6 +306,40 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     if changed or rebuild_library:
         build_library(repo, client, say)
     return report
+
+
+def _drop_datasheet(repo, folder, report):
+    """Remove a datasheet.md and its images/; an edited datasheet.md stays, untracked."""
+    rel = f"{folder}/{MARKDOWN}"
+    unmodified = _unmodified(repo, rel)
+    if unmodified:
+        shutil.rmtree(repo.working(f"{folder}/{IMAGES}"), ignore_errors=True)
+    else:
+        report["warnings"].append(f"{rel} has local edits; kept, untracked")
+    repo.remove(rel, working=unmodified)
+
+
+def _drop_part_copies(repo, report):
+    """Clones made before the shared datasheet folders hold a datasheet.md and an
+    images/ folder in every part folder: remove them (once; the state forgets them)."""
+    for entry in repo.parts().values():
+        if entry["files"].pop(MARKDOWN, None) is not None:
+            _drop_datasheet(repo, entry["path"], report)
+
+
+def _pull_datasheets(repo, listed, pending, report):
+    """Bring the fetched datasheets in and drop the ones the server no longer lists."""
+    have = _sheets(repo)
+    for folder, etag in pending.items():
+        rel = f"{folder}/{MARKDOWN}"
+        _merge_into(repo, rel, MARKDOWN, repo.read(repo.incoming(rel)), False, report)
+        shutil.rmtree(repo.working(folder) / IMAGES, ignore_errors=True)
+        if repo.incoming(f"{folder}/{IMAGES}").is_dir():
+            shutil.copytree(repo.incoming(f"{folder}/{IMAGES}"), repo.working(folder) / IMAGES)
+        have[folder] = etag
+    for folder in [f for f in have if f not in listed]:
+        _drop_datasheet(repo, folder, report)
+        del have[folder]
 
 
 def build_library(repo, client, say=_quiet):
@@ -339,6 +382,14 @@ def status(repo):
         state = _file_state(repo, rel, rel)
         if state:
             settings.append({"path": rel, "state": state})
+    datasheets = []
+    for folder in sorted(repo.state.get("datasheets", {})):
+        rel = f"{folder}/{MARKDOWN}"
+        state = _file_state(repo, rel, MARKDOWN)
+        if state:
+            datasheets.append({"path": rel, "state": state})
+        if repo.working(rel + ".local").exists():
+            datasheets.append({"path": rel + ".local", "state": "saved-local-copy"})
     untracked = []
     parts_dir = repo.working("parts")
     if parts_dir.is_dir():
@@ -349,15 +400,16 @@ def status(repo):
                     untracked.append(rel)
     generated = [f"{LIBRARY_DIR}/{rel}" for rel in library.edited(str(repo.working(LIBRARY_DIR)), repo.state.get("library"))]
     return {"workspace": {"id": repo.state["workspace_id"], "name": repo.state.get("workspace_name")},
-            "server": repo.state["server"], "parts": parts, "settings": settings,
+            "server": repo.state["server"], "parts": parts, "settings": settings, "datasheets": datasheets,
             "untracked": untracked, "generated_edited": generated,
-            "clean": not (parts or settings or generated)}
+            "clean": not (parts or settings or datasheets or generated)}
 
 
 def _selected(repo, target):
     """Tracked file paths matching a part identifier or a path prefix (all when target is None)."""
     paths = [f"{e['path']}/{n}" for e in repo.parts().values() for n in e["files"]]
     paths += list(repo.state.get("settings", {}))
+    paths += [f"{folder}/{MARKDOWN}" for folder in repo.state.get("datasheets", {})]
     if not target:
         return paths
     rel = os.path.relpath(os.path.abspath(target), repo.root) if os.path.exists(target) else target.rstrip("/")
@@ -399,7 +451,8 @@ class PushRefused(RepoError):
 def push(repo, client, message, say=_quiet):
     report = status(repo)
     blocked = [f["path"] for p in report["parts"] for f in p["files"] if f["state"] in ("read-only-edited", "conflicted")]
-    blocked += [s["path"] for s in report["settings"] if s["state"] in ("read-only-edited", "conflicted")]
+    blocked += [s["path"] for s in report["settings"] + report["datasheets"]
+                if s["state"] in ("read-only-edited", "conflicted")]
     if blocked:
         raise PushRefused("nothing was pushed; fix these first (dsmd restore <path> for read-only files, "
                           "resolve the conflict markers otherwise):\n  " + "\n  ".join(blocked))

@@ -22,7 +22,8 @@ STATE = "state.json"
 CONFIG = "dsmd.toml"
 DEFAULT_CONFIG = """# dsmd working-copy settings
 [pull]
-# Pull each part's digitised datasheet as datasheet.md (read-only).
+# Pull each family's digitised datasheet as datasheets/<manufacturer>/<pdf name>/datasheet.md
+# (read-only; each part's part.yaml points at its one).
 markdown = true
 
 [library]
@@ -64,7 +65,8 @@ class Repo:
         repo = cls(root)
         (repo.dot / "base").mkdir(parents=True)
         repo.state = {"server": server, "workspace_id": workspace["id"], "workspace_name": workspace.get("name"),
-                      "renderer": None, "sparse": None, "parts": {}, "settings": {}, "library": {}}
+                      "renderer": None, "sparse": None, "parts": {}, "settings": {}, "datasheets": {},
+                      "library": {}}
         (repo.root / CONFIG).write_text(DEFAULT_CONFIG)
         (repo.root / ".gitignore").write_text(GITIGNORE)
         repo.save()

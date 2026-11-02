@@ -11,6 +11,7 @@ from datasheets_md.http import ApiError
 
 PART = "11111111-1111-1111-1111-111111111111"
 PATH = "parts/TI/SN74HC00N"
+SHEET = "datasheets/TI/sn74hc00"
 
 
 def etag(text):
@@ -32,13 +33,16 @@ class FakeServer:
         self.server = "https://api.test"
         self.workspace_id = None
         self.parts = {PART: {"path": PATH, "files": {
-            "part.yaml": "uuid: %s\nweb_url: https://app.test/private/uuid/%s\n" % (PART, PART),
+            "part.yaml": "uuid: %s\ndatasheet: %s/datasheet.md\nweb_url: https://app.test/private/uuid/%s\n"
+                         % (PART, SHEET, PART),
             "parameters.jsonl": jsonl(row("a1", "VOH", "1.9"), row("b2", "VOL", "0.1"),
                                       row("c3", "Icc", "20", section="power")),
             "pins.csv": "id,number,name,etype,on_symbol,description\npin-a,1,IN,input,true,\npin-b,2,OUT,output,true,\n",
             "cad.yaml": "footprint: {}\npackage_id: null\nsymbol: {}\n",
-            "datasheet.md": "# SN74HC00N\n{{figure:ff44 bbox=0,0,1,1}}\n![Pinout](images/ff44.png)\n",
-        }, "images": {"ff44.png": b"PNG1"}}}
+        }}}
+        # One per family, downloaded through `part`.
+        self.datasheets = {SHEET: {"part": PART, "images": {"ff44.png": b"PNG1"},
+                                   "text": "## Page 1\n{{figure:ff44 bbox=0,0,1,1}}\n![Pinout](images/ff44.png)\n"}}
         self.settings = {"settings/mapping.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
         self.pushes = []
         self.feedback = []
@@ -57,7 +61,7 @@ class FakeServer:
     def _files(self):
         out = {p: t for p, t in self.settings.items()}
         for part in self.parts.values():
-            out.update({f"{part['path']}/{n}": t for n, t in part["files"].items() if n != "datasheet.md"})
+            out.update({f"{part['path']}/{n}": t for n, t in part["files"].items()})
         return out
 
     def get(self, path, params=None, **_):
@@ -65,7 +69,8 @@ class FakeServer:
             out = {"renderer": "R1", "workspace": {"id": 7, "name": "Test"},
                    "settings": {p: etag(t) for p, t in self.settings.items()},
                    "parts": [{"uuid": u, "path": p["path"], "files": {n: etag(t) for n, t in p["files"].items()}}
-                             for u, p in self.parts.items()]}
+                             for u, p in self.parts.items()],
+                   "datasheets": {f: {"etag": etag(d["text"]), "part": d["part"]} for f, d in self.datasheets.items()}}
             if not self.incremental:
                 return out
             since = (params or {}).get("since")
@@ -78,14 +83,14 @@ class FakeServer:
                 out["deleted"] = self.deletions[deletions:]
             return out
         if path.endswith("/download-markdown/"):
-            assert params == {"images": "zip", "metadata": "keep"}
-            part = self.parts.get(path.split("/")[3])
-            if part is None or "datasheet.md" not in part["files"]:
+            assert params == {"images": "zip", "metadata": "keep", "title": "omit"}
+            sheet = next((d for d in self.datasheets.values() if d["part"] == path.split("/")[3]), None)
+            if sheet is None:
                 raise ApiError("Component not found.", 404)
             buffer = io.BytesIO()
             with zipfile.ZipFile(buffer, "w") as archive:
-                archive.writestr("SN74HC00N_x.md", part["files"]["datasheet.md"])
-                for name, data in part.get("images", {}).items():
+                archive.writestr("SN74HC00N_x.md", sheet["text"])
+                for name, data in sheet["images"].items():
                     archive.writestr(f"images/{name}", data)
             return SimpleNamespace(content=buffer.getvalue())
         if path == "/workspace/mappings/system-categories/":
@@ -131,7 +136,7 @@ class FakeServer:
                     part["files"][name] = f["content"]
                 out.append({"uuid": item["uuid"], "status": "applied", "errors": [],
                             "files": {f"{part['path']}/{n}": {"etag": etag(t), "content": t}
-                                      for n, t in part["files"].items() if n != "datasheet.md"}})
+                                      for n, t in part["files"].items()}})
             return {"parts": out, "settings": settings}
         raise ApiError(f"unexpected POST {path}", 404)
 

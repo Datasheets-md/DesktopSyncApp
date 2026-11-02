@@ -54,10 +54,11 @@ dsmd.toml                     what to pull, which library outputs to build
 settings/mapping.yaml         workspace mapping (categories, parameter names, CAD fields) -- editable, admin
 settings/symbol_style.yaml    symbol generation settings and reference designators     -- editable, admin
 parts/<MFR>/<PN>/
-  part.yaml                   identity (read-only)
+  part.yaml                   identity, and `datasheet:` -> its datasheet.md (read-only)
   parameters.jsonl            unified parameters, one row per line  -- editable
   pins.csv                    physical pins, one per line           -- editable
   cad.yaml                    CAD configuration                     -- editable
+datasheets/<MFR>/<PDF name>/  one per family, shared by its parts
   datasheet.md                digitised datasheet with its element ids (read-only)
   images/                     the figures datasheet.md links to (read-only)
 library/                      generated KiCad library (rebuilt on pull)

@@ -84,15 +84,17 @@ def cmd_fetch(args, out):
     repo, client = _repo_client(args)
     with repo.lock():
         got = sync.fetch(repo, client, say=out.say)
-    out.result(got, (f"{got['changed_files']} files changed on the server ({got['new_parts']} new parts, "
-                     f"{got['removed_parts']} removed, {got['moved_parts']} moved); run dsmd pull to merge them"))
+    out.result(got, (f"{got['changed_files']} files and {got['changed_datasheets']} datasheets changed on the server "
+                     f"({got['new_parts']} new parts, {got['removed_parts']} removed, {got['moved_parts']} moved); "
+                     "run dsmd pull to merge them"))
 
 
 def cmd_pull(args, out):
     repo, client = _repo_client(args)
     with repo.lock():
         report = sync.pull(repo, client, rebuild_library=args.library, say=out.say)
-    lines = [f"Pulled: {report['changed_files']} files, {report['new_parts']} new parts, "
+    lines = [f"Pulled: {report['changed_files']} files, {report['changed_datasheets']} datasheets, "
+             f"{report['new_parts']} new parts, "
              f"{report['removed_parts']} removed, {report['moved_parts']} moved"]
     lines += [f"merged    {p}" for p in report["merged"]]
     lines += [f"CONFLICT  {c['path']} ({c['conflicts']} rows)" for c in report["conflicts"]]
@@ -109,7 +111,7 @@ def cmd_status(args, out):
     for part in report["parts"]:
         lines.append(f"{part['path']}/")
         lines += [f"    {f['state']:<18} {f['name']}" for f in part["files"]]
-    lines += [f"{s['state']:<22} {s['path']}" for s in report["settings"]]
+    lines += [f"{s['state']:<22} {s['path']}" for s in report["settings"] + report["datasheets"]]
     lines += [f"generated, will be overwritten: {p}" for p in report["generated_edited"]]
     lines += [f"untracked, ignored: {p}/" for p in report["untracked"]]
     if report["clean"]:

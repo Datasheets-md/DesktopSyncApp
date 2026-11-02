@@ -193,7 +193,7 @@ class Window(QWidget):
         self.pull_button.setEnabled(self.repo is not None)
         report = sync.status(self.repo) if self.repo else None
         states = [f["state"] for p in report["parts"] for f in p["files"]] + \
-                 [s["state"] for s in report["settings"]] if report else []
+                 [s["state"] for s in report["settings"] + report["datasheets"]] if report else []
         modified = "modified" in states
         blocked = "conflicted" in states or "read-only-edited" in states
         self.push_button.setEnabled(bool(modified) and not blocked)
@@ -208,6 +208,8 @@ class Window(QWidget):
                 QTreeWidgetItem(self.status_tree, [part["path"], f["name"], f["state"]])
         for s in report["settings"]:
             QTreeWidgetItem(self.status_tree, ["settings", s["path"], s["state"]])
+        for s in report["datasheets"]:
+            QTreeWidgetItem(self.status_tree, ["datasheets", s["path"], s["state"]])
         for path in report["generated_edited"]:
             QTreeWidgetItem(self.status_tree, ["library", path, "generated - will be overwritten"])
         self.status_tree.resizeColumnToContents(0)
