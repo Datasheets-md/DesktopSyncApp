@@ -43,6 +43,16 @@ class FakeServer:
         self.pushes = []
         self.feedback = []
         self.reject = None
+        # A server with component revisions: a cursor, `since`, `deleted`.
+        self.incremental = False
+        self.changes, self.deletions, self.since_seen = [], [], []
+
+    def touch(self, uuid):
+        self.changes.append(uuid)
+
+    def delete(self, uuid):
+        del self.parts[uuid]
+        self.deletions.append(uuid)
 
     def _files(self):
         out = {p: t for p, t in self.settings.items()}
@@ -52,10 +62,21 @@ class FakeServer:
 
     def get(self, path, params=None, **_):
         if path == "/workspace/sync/manifest/":
-            return {"renderer": "R1", "workspace": {"id": 7, "name": "Test"},
-                    "settings": {p: etag(t) for p, t in self.settings.items()},
-                    "parts": [{"uuid": u, "path": p["path"], "files": {n: etag(t) for n, t in p["files"].items()}}
-                              for u, p in self.parts.items()]}
+            out = {"renderer": "R1", "workspace": {"id": 7, "name": "Test"},
+                   "settings": {p: etag(t) for p, t in self.settings.items()},
+                   "parts": [{"uuid": u, "path": p["path"], "files": {n: etag(t) for n, t in p["files"].items()}}
+                             for u, p in self.parts.items()]}
+            if not self.incremental:
+                return out
+            since = (params or {}).get("since")
+            self.since_seen.append(since)
+            out.update(cursor=f"{len(self.changes)}.{len(self.deletions)}", deleted=[], pending=0)
+            if since:
+                changes, deletions = (int(x) for x in since.split("."))
+                changed = set(self.changes[changes:])
+                out["parts"] = [p for p in out["parts"] if p["uuid"] in changed]
+                out["deleted"] = self.deletions[deletions:]
+            return out
         if path.endswith("/download-markdown/"):
             assert params == {"images": "zip", "metadata": "keep"}
             part = self.parts.get(path.split("/")[3])

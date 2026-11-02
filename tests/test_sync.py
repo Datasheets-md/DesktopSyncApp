@@ -208,3 +208,19 @@ def test_categories_and_feedback(server):
     sync.feedback(server, "need a footprint style setting", "suggestion")
     sent = server.feedback[0]
     assert sent["kind"] == "suggestion" and sent["tool"] == "dsmd" and sent["message"].startswith("need")
+
+
+def test_incremental_pull_reads_only_changes_and_deletions(tmp_path, server):
+    server.incremental = True
+    repo = Repo.find(sync.clone(server, "7", tmp_path / "wc")["root"])
+    assert repo.state["cursor"] == "0.0"
+    sync.pull(repo, server)
+    assert server.since_seen[-1] == "0.0" and PART in repo.parts()  # absent from a delta is not deleted
+    server.parts[PART]["files"]["pins.csv"] += "pin-c,3,EN,input,true,\n"
+    server.touch(PART)
+    report = sync.pull(repo, server)
+    assert report["changed_files"] == 1 and "pin-c" in repo.read(repo.working(f"{PATH}/pins.csv"))
+    assert repo.state["cursor"] == "1.0"
+    server.delete(PART)
+    assert sync.pull(repo, server)["removed_parts"] == 1
+    assert repo.parts() == {} and repo.state["cursor"] == "1.1"

@@ -34,10 +34,24 @@ def _quiet(*_args, **_kw):
     pass
 
 
-def _manifest(client, repo=None, parts=None):
+def _manifest(client, repo=None, parts=None, incremental=False):
+    """The server's manifest. `incremental` (a pull of a full working copy that
+    holds a cursor) asks only for the parts changed since: the answer's
+    `delta` is then True and `deleted` lists the parts removed since. A server
+    without revisions ignores `since` and answers the full manifest."""
     sparse = parts if parts is not None else (repo.state.get("sparse") if repo else None)
-    params = {"parts": ",".join(sparse)} if sparse else None
-    return client.get(f"{SYNC}/manifest/", params=params)
+    params = {"parts": ",".join(sparse)} if sparse else {}
+    since = repo.state.get("cursor") if (repo and incremental and not sparse) else None
+    if since:
+        params["since"] = since
+    manifest = client.get(f"{SYNC}/manifest/", params=params or None)
+    manifest["delta"] = bool(since) and "cursor" in manifest
+    return manifest
+
+
+def _say_pending(manifest, say):
+    if manifest.get("pending"):
+        say(f"The server is still recording {manifest['pending']} changed part(s); pull again in a minute to get them.")
 
 
 def _download(client, paths, say=_quiet):
@@ -116,7 +130,8 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
     workspace = {**manifest["workspace"]}
     repo = Repo.create(directory, client.server, workspace)
     with repo.lock():
-        repo.state.update(renderer=manifest["renderer"], sparse=parts or None)
+        repo.state.update(renderer=manifest["renderer"], sparse=parts or None, cursor=manifest.get("cursor"))
+        _say_pending(manifest, say)
         wanted = {}
         for part in manifest["parts"]:
             for name, etag in _wanted(repo, part["files"]).items():
@@ -151,7 +166,8 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
 def fetch(repo, client, say=_quiet):
     """Download what changed on the server into .dsmd/incoming/ (not the working copy)."""
     say("Checking the server for changes...")
-    manifest = _manifest(client, repo)
+    manifest = _manifest(client, repo, incremental=True)
+    _say_pending(manifest, say)
     known = repo.parts()
     wanted, md_etags = {}, {}
     for part in manifest["parts"]:
@@ -177,13 +193,21 @@ def fetch(repo, client, say=_quiet):
             repo.write(repo.incoming(key), files[path]["content"])
     pending = {key: files[path]["etag"] for path, key in wanted.items() if path in files}
     repo.write(incoming / "manifest.json", json.dumps({"manifest": manifest, "pending": pending}))
-    manifest_uuids = {p["uuid"] for p in manifest["parts"]}
     new = [p for p in manifest["parts"] if p["uuid"] not in known]
-    gone = [u for u in known if u not in manifest_uuids]
+    gone = _gone(manifest, known)
     moved = [p for p in manifest["parts"] if p["uuid"] in known and known[p["uuid"]]["path"] != p["path"]]
     changed_parts = {key.split("/", 1)[0] for key in pending if "/" in key and not key.startswith("settings/")}
     return {"changed_files": len(pending), "changed_parts": len(changed_parts - {p["uuid"] for p in new}),
             "new_parts": len(new), "removed_parts": len(gone), "moved_parts": len(moved)}
+
+
+def _gone(manifest, known):
+    """The known parts the server no longer has: listed in `deleted` by an
+    incremental manifest, absent from a full one."""
+    if manifest.get("delta"):
+        return [u for u in manifest.get("deleted", []) if u in known]
+    listed = {p["uuid"] for p in manifest["parts"]}
+    return [u for u in known if u not in listed]
 
 
 def _merge_into(repo, rel, name, server_text, editable, report):
@@ -255,8 +279,7 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
         if path in pending:
             _merge_into(repo, path, path, repo.read(repo.incoming(path)), path in EDITABLE, report)
             repo.state["settings"][path] = pending[path]
-    gone = [u for u in parts if u not in {p["uuid"] for p in manifest["parts"]}]
-    for uuid in gone:
+    for uuid in _gone(manifest, parts):
         entry = parts.pop(uuid)
         dirty = [n for n in entry["files"] if not _unmodified(repo, f"{entry['path']}/{n}")]
         if not dirty:
@@ -267,6 +290,7 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
             report["kept"].append(entry["path"])
             report["warnings"].append(f"{entry['path']} was removed on the server but has local edits; kept, untracked")
     repo.state["renderer"] = manifest["renderer"]
+    repo.state["cursor"] = manifest.get("cursor")
     repo.save()
     shutil.rmtree(repo.dot / "incoming", ignore_errors=True)
     changed = summary["changed_files"] or summary["new_parts"] or summary["removed_parts"]
