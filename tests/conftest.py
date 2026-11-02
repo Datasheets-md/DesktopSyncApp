@@ -41,6 +41,7 @@ class FakeServer:
         }, "images": {"ff44.png": b"PNG1"}}}
         self.settings = {"settings/mapping.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
         self.pushes = []
+        self.feedback = []
         self.reject = None
 
     def _files(self):
@@ -66,6 +67,9 @@ class FakeServer:
                 for name, data in part.get("images", {}).items():
                     archive.writestr(f"images/{name}", data)
             return SimpleNamespace(content=buffer.getvalue())
+        if path == "/workspace/mappings/system-categories/":
+            return {"categories": [{"id": "c1", "name": "ICs", "parent_id": None, "parts": 1},
+                                   {"id": "c2", "name": "Logic", "parent_id": "c1", "parts": 0}]}
         if path == "/workspace/components/":
             return {"components": [], "has_next": False}
         if path == "/workspace/components/cad-export/":
@@ -79,8 +83,19 @@ class FakeServer:
             files = self._files()
             return {"files": {p: {"etag": etag(files[p]), "content": files[p]} for p in body["paths"] if p in files},
                     "missing": [p for p in body["paths"] if p not in files]}
+        if path == "/mcp/feedback/":
+            self.feedback.append(body)
+            return {"id": 1}
         if path == "/workspace/sync/push/":
             self.pushes.append(body)
+            settings = []
+            for name, f in (body.get("settings") or {}).items():
+                if etag(self.settings[name]) != f["base_etag"]:
+                    settings.append({"path": name, "status": "stale", "errors": [], "files": {}})
+                    continue
+                self.settings[name] = f["content"]
+                settings.append({"path": name, "status": "applied", "errors": [],
+                                 "files": {name: {"etag": etag(f["content"]), "content": f["content"]}}})
             out = []
             for item in body["parts"]:
                 part = self.parts[item["uuid"]]
@@ -96,7 +111,7 @@ class FakeServer:
                 out.append({"uuid": item["uuid"], "status": "applied", "errors": [],
                             "files": {f"{part['path']}/{n}": {"etag": etag(t), "content": t}
                                       for n, t in part["files"].items() if n != "datasheet.md"}})
-            return {"parts": out}
+            return {"parts": out, "settings": settings}
         raise ApiError(f"unexpected POST {path}", 404)
 
 

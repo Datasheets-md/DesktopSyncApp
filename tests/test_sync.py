@@ -76,6 +76,28 @@ def test_push_applies_and_takes_the_server_version(repo, server):
     assert sync.status(repo)["clean"]
 
 
+def test_settings_are_editable_and_pushed_first(repo, server):
+    rel = "settings/mapping.yaml"
+    repo.write(repo.working(rel), "name: default\ncustom_categories: [Gate drivers]\n")
+    assert sync.status(repo)["settings"] == [{"path": rel, "state": "modified"}]
+    result = sync.push(repo, server, "add a category")
+    assert result["applied"] == [{"path": rel, "errors": []}]
+    sent = server.pushes[0]
+    assert sent["parts"] == [] and list(sent["settings"]) == [rel]
+    assert server.settings[rel] == repo.read(repo.base(rel))
+    assert sync.status(repo)["clean"]
+
+
+def test_settings_merge_by_key_on_pull(repo, server):
+    rel = "settings/symbol_style.yaml"
+    repo.write(repo.working(rel), "style: {}\nreference_designators: {ICs: U}\n")
+    server.settings[rel] = "style: {pin_length: 2}\n"
+    report = sync.pull(repo, server)
+    assert report["conflicts"] == [] and report["merged"] == [rel]
+    text = repo.read(repo.working(rel))
+    assert "pin_length: 2" in text and "ICs: U" in text
+
+
 def test_push_refuses_read_only_edits(repo, server):
     repo.write(repo.working(f"{PATH}/datasheet.md"), "mine\n")
     repo.write(repo.working(f"{PATH}/pins.csv"), "changed\n")
@@ -179,3 +201,10 @@ def test_cli_status_json(repo, capsys):
 def test_cli_outside_a_working_copy(tmp_path, capsys):
     assert cli.main(["-C", str(tmp_path), "status"]) == 1
     assert "not a dsmd working copy" in capsys.readouterr().err
+
+
+def test_categories_and_feedback(server):
+    assert [c["name"] for c in sync.categories(server)] == ["ICs", "Logic"]
+    sync.feedback(server, "need a footprint style setting", "suggestion")
+    sent = server.feedback[0]
+    assert sent["kind"] == "suggestion" and sent["tool"] == "dsmd" and sent["message"].startswith("need")

@@ -160,9 +160,10 @@ class Window(QWidget):
         self.sign_out.setEnabled(signed_in)
         self.pull_button.setEnabled(self.repo is not None)
         report = sync.status(self.repo) if self.repo else None
-        modified = report and any(f["state"] == "modified" for p in report["parts"] for f in p["files"])
-        blocked = report and any(f["state"] in ("conflicted", "read-only-edited")
-                                 for p in report["parts"] for f in p["files"])
+        states = [f["state"] for p in report["parts"] for f in p["files"]] + \
+                 [s["state"] for s in report["settings"]] if report else []
+        modified = "modified" in states
+        blocked = "conflicted" in states or "read-only-edited" in states
         self.push_button.setEnabled(bool(modified) and not blocked)
         self.show_status(report)
 

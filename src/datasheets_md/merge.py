@@ -2,8 +2,10 @@
 
 `parameters.jsonl` merges by row key `k`, `pins.csv` by pin `id`: two edits to
 different rows never conflict, two different edits to the same row conflict
-on that row only. Everything else merges as a whole file. A conflict is
-written inline:
+on that row only. The YAML files (cad.yaml, settings/*.yaml) merge key by key,
+recursing into mappings, so edits under different keys never conflict; any
+clash there falls back to a whole-file conflict. Everything else merges as a
+whole file. A conflict is written inline:
 
     <<<<<<< local
     <the local line(s)>
@@ -14,6 +16,8 @@ written inline:
 import csv
 import io
 import json
+
+import yaml
 
 LOCAL, MIDDLE, SERVER = "<<<<<<< local", "=======", ">>>>>>> server"
 MARKER_PREFIXES = ("<<<<<<< ", ">>>>>>> ")
@@ -150,7 +154,47 @@ def merge_csv(base, local, server):
     return "\n".join([_csv_line(s_head), *lines]) + "\n", conflicts
 
 
-MERGERS = {"parameters.jsonl": merge_jsonl, "pins.csv": merge_csv}
+_MISSING = object()
+
+
+class _Clash(Exception):
+    pass
+
+
+def _merge_value(base, local, server):
+    if local == server:
+        return local
+    if local == base:
+        return server
+    if server == base:
+        return local
+    if isinstance(local, dict) and isinstance(server, dict):
+        base = base if isinstance(base, dict) else {}
+        out = {}
+        for key in [*server, *(k for k in local if k not in server)]:
+            value = _merge_value(base.get(key, _MISSING), local.get(key, _MISSING), server.get(key, _MISSING))
+            if value is not _MISSING:
+                out[key] = value
+        return out
+    raise _Clash
+
+
+def merge_yaml(base, local, server):
+    """(text, conflicts): key-by-key, written the way the server renders YAML."""
+    try:
+        mine, theirs = yaml.safe_load(local), yaml.safe_load(server)
+        merged = _merge_value(yaml.safe_load(base) if base else {}, mine, theirs)
+    except (_Clash, yaml.YAMLError):
+        return merge_whole(base, local, server)
+    if merged == theirs:
+        return server, 0
+    if merged == mine:
+        return local, 0           # keep the user's own formatting
+    return yaml.safe_dump(merged, sort_keys=True, allow_unicode=True, default_flow_style=False), 0
+
+
+MERGERS = {"parameters.jsonl": merge_jsonl, "pins.csv": merge_csv, "cad.yaml": merge_yaml,
+           "settings/mapping.yaml": merge_yaml, "settings/symbol_style.yaml": merge_yaml}
 
 
 def merge(name, base, local, server):

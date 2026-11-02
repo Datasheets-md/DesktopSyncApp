@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import yaml
 
-from . import library
+from . import __version__, library
 from .http import ApiError
 from .merge import has_conflict, merge
 from .repo import Repo, RepoError
@@ -23,7 +23,8 @@ from .repo import Repo, RepoError
 SYNC = "/workspace/sync"
 BATCH_FILES = 100
 BATCH_PARTS = 20
-EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml")
+SETTINGS = ("settings/mapping.yaml", "settings/symbol_style.yaml")
+EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml", *SETTINGS)
 MARKDOWN = "datasheet.md"
 IMAGES = "images"               # the figures datasheet.md links to, next to it
 LIBRARY_DIR = "library"
@@ -243,7 +244,7 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
                     shutil.copytree(repo.incoming(f"{uuid}/{IMAGES}"), folder)
     for path in manifest["settings"]:
         if path in pending:
-            _merge_into(repo, path, path, repo.read(repo.incoming(path)), False, report)
+            _merge_into(repo, path, path, repo.read(repo.incoming(path)), path in EDITABLE, report)
             repo.state["settings"][path] = pending[path]
     gone = [u for u in parts if u not in {p["uuid"] for p in manifest["parts"]}]
     for uuid in gone:
@@ -379,13 +380,26 @@ def push(repo, client, message, say=_quiet):
                                     "content": repo.read(repo.working(f["path"]))}
         if files:
             items.append({"uuid": part["uuid"], "files": files})
+    settings = {s["path"]: {"base_etag": repo.state["settings"][s["path"]], "content": repo.read(repo.working(s["path"]))}
+                for s in report["settings"] if s["state"] == "modified"}
     result = {"applied": [], "stale": [], "rejected": []}
-    if not items:
+    if not items and not settings:
         return result
     cad_changed = False
-    for start in range(0, len(items), BATCH_PARTS):
+    for start in range(0, max(len(items), 1), BATCH_PARTS):
         batch = items[start:start + BATCH_PARTS]
-        response = client.post(f"{SYNC}/push/", {"message": message, "parts": batch})
+        body = {"message": message, "parts": batch}
+        if start == 0 and settings:
+            body["settings"] = settings          # applied before the parts, so new categories exist for them
+        response = client.post(f"{SYNC}/push/", body)
+        for outcome in response.get("settings") or []:
+            path = outcome["path"]
+            result.setdefault(outcome["status"], []).append({"path": path, "errors": outcome.get("errors") or []})
+            if outcome["status"] == "applied":
+                for served, file in (outcome.get("files") or {}).items():
+                    repo.put(served, file["content"])
+                    repo.state["settings"][served] = file["etag"]
+                cad_changed = True               # the mapping and symbol style feed the KiCad library
         sent = {item["uuid"]: item for item in batch}
         for outcome in response["parts"]:
             uuid = outcome["uuid"]
@@ -454,6 +468,20 @@ def pdf(repo, client, ident):
     return str(target)
 
 
+def categories(client):
+    """The catalogue's categories -- the ids settings/mapping.yaml's category_map is keyed by."""
+    return client.get("/workspace/mappings/system-categories/")["categories"]
+
+
+FEEDBACK_KINDS = ("bug", "suggestion", "praise", "other")
+
+
+def feedback(client, message, kind="other"):
+    """Send a note to the datasheets.md team -- the channel the MCP's send_feedback uses."""
+    return client.post("/mcp/feedback/", {"message": message, "kind": kind, "tool": "dsmd",
+                                          "context": {"client": f"dsmd {__version__}"}})
+
+
 def web_url(repo, ident):
     uuid = repo.resolve(ident)
     text = repo.read(repo.base(f"{repo.parts()[uuid]['path']}/part.yaml")) or "{}"
@@ -469,4 +497,4 @@ def open_part(repo, ident):
 
 
 __all__ = ["ApiError", "RepoError", "PushRefused", "clone", "fetch", "pull", "status", "diff", "restore",
-           "push", "log", "part_add", "part_rm", "pdf", "open_part", "build_library", "resolve_workspace"]
+           "push", "log", "part_add", "part_rm", "pdf", "open_part", "build_library", "resolve_workspace", "feedback", "categories"]

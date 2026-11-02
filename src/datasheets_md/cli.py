@@ -130,6 +130,13 @@ def cmd_restore(args, out):
     out.result({"restored": done}, "\n".join(f"restored {p}" for p in done) or "Nothing to restore.")
 
 
+def _where(path, error):
+    """`parts/X/Y/pins.csv:3` for a part's file, `settings/mapping.yaml:3` for a settings file."""
+    name = error.get("file")
+    where = path if not name or name == path else f"{path}/{name}"
+    return where + (f":{error['line']}" if error.get("line") else "")
+
+
 def cmd_push(args, out):
     repo, client = _repo_client(args)
     with repo.lock():
@@ -137,8 +144,7 @@ def cmd_push(args, out):
     lines = [f"applied   {r['path']}" for r in result["applied"]]
     lines += [f"stale     {r['path']}: changed on the server; run dsmd pull, then push again" for r in result["stale"]]
     for r in result["rejected"]:
-        lines += [f"rejected  {r['path']}/{e.get('file') or ''}{':' + str(e['line']) if e.get('line') else ''}: {e['error']}"
-                  for e in r["errors"]] or [f"rejected  {r['path']}"]
+        lines += [f"rejected  {_where(r['path'], e)}: {e['error']}" for e in r["errors"]] or [f"rejected  {r['path']}"]
     out.result(result, "\n".join(lines) or "Nothing to push.")
     return EXIT_PARTIAL if result["stale"] or result["rejected"] else EXIT_OK
 
@@ -185,6 +191,24 @@ def cmd_open(args, out):
     repo = Repo.find(args.C or ".")
     url = sync.open_part(repo, args.part)
     out.result({"url": url}, url)
+
+
+def cmd_categories(args, out):
+    _, client = _repo_client(args)
+    rows = sync.categories(client)
+    names = {r["id"]: r["name"] for r in rows}
+    out.result(rows, "\n".join(f"{r['id']}  {r['name']}"
+                                + (f"  (under {names.get(r['parent_id'], '?')})" if r["parent_id"] else "")
+                                + (f"  [{r['parts']} parts]" if r["parts"] else "") for r in rows))
+
+
+def cmd_feedback(args, out):
+    try:
+        _, client = _repo_client(args)
+    except RepoError:                       # outside a working copy: no workspace, still fine
+        client = _client(args.server)
+    sync.feedback(client, " ".join(args.message), args.kind)
+    out.result({"sent": True}, "Sent. Thank you -- the datasheets.md team reads every note.")
 
 
 def cmd_gui(args, out):
@@ -261,6 +285,11 @@ def parser():
     prm.add_argument("--yes", "-y", action="store_true", help="do not ask")
     add("pdf", cmd_pdf, "download a part's PDF into .dsmd/cache and print its path").add_argument("part")
     add("open", cmd_open, "open a part's web page").add_argument("part")
+    add("categories", cmd_categories, "list the catalogue categories (the ids settings/mapping.yaml's category_map uses)")
+    cmd = add("feedback", cmd_feedback, "tell the datasheets.md team about a bug or a missing setting")
+    cmd.add_argument("message", nargs="+")
+    cmd.add_argument("--kind", choices=sync.FEEDBACK_KINDS, default="other")
+    cmd.add_argument("--server")
     add("gui", cmd_gui, "launch the desktop app (needs datasheets-md-gui)")
     add("help", cmd_help, "extra help topics").add_argument("topic", choices=["agents"])
     return p

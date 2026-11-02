@@ -83,8 +83,17 @@ def test_new_local_pin_is_kept_and_same_pin_conflicts():
     assert conflicts == 1 and text.splitlines()[-1] == ",9,EN,input,true,Enable"
 
 
-def test_cad_yaml_merges_as_a_whole():
+def test_yaml_merges_key_by_key():
     base = "symbol: {}\n"
     assert merge("cad.yaml", base, "symbol: {a: 1}\n", base) == ("symbol: {a: 1}\n", 0)
+    # different keys, even nested, merge cleanly
     text, conflicts = merge("cad.yaml", base, "symbol: {a: 1}\n", "symbol: {b: 2}\n")
+    assert conflicts == 0 and text == "symbol:\n  a: 1\n  b: 2\n"
+    base = "categories:\n  ICs: {pin_length: 2}\nreference_designators:\n  ICs: U\n"
+    local = base.replace("U", "IC")
+    server = base + "style: {}\n"
+    text, conflicts = merge("settings/symbol_style.yaml", base, local, server)
+    assert conflicts == 0 and "ICs: IC" in text and "style: {}" in text
+    # the same key changed both ways -> whole-file conflict
+    text, conflicts = merge("settings/symbol_style.yaml", base, local, base.replace("U", "IC2"))
     assert conflicts == 1 and text.startswith("<<<<<<< local\n")
