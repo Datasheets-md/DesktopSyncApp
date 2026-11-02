@@ -19,6 +19,12 @@ ln -s ~/.venvs/dsmd/bin/dsmd ~/.local/bin/dsmd
 
 or let pipx do both: `pipx install datasheets-md`.
 
+`dsmd` looks for a new release once a day and prints one line when there is
+one. `dsmd self-update` upgrades the install the way it was made (pipx, uv tool,
+or the pip of its venv). Set `DSMD_NO_UPDATE_CHECK=1` to turn the check off; it
+also stays off under `CI`, with `--json` or `--quiet`, and when stderr is not a
+terminal.
+
 ## Use
 
 ```bash
@@ -37,6 +43,7 @@ dsmd open SN74HC00N                   # the part's web page
 dsmd categories                       # catalogue category ids, for settings/mapping.yaml
 dsmd feedback "a setting I need"      # tell the datasheets.md team (--kind bug|suggestion)
 dsmd gui                              # the desktop app (needs datasheets-md-gui)
+dsmd self-update                      # upgrade to the latest release (--check only asks)
 dsmd help agents                      # the guide for AI agents
 ```
 

@@ -12,6 +12,7 @@ license = "MIT"
 authors = [{ name = "datasheets.md" }]
 dependencies = [
     "requests>=2.31",
+    "packaging>=22",
     "platformdirs>=3",
     "pyyaml>=6",
     "tomli>=2; python_version < '3.11'",

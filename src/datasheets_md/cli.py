@@ -5,10 +5,13 @@ Exit codes: 0 ok; 1 error; 2 completed, but with conflicts or stale/rejected par
 import argparse
 import json
 import os
+import shlex
 import sys
 from importlib import resources
 
-from . import __version__, auth, sync
+import requests
+
+from . import __version__, auth, sync, update
 from .http import ApiError, Client
 from .repo import Repo, RepoError
 
@@ -221,6 +224,35 @@ def cmd_gui(args, out):
     return gui_main(["--foreground"] if args.foreground else [])
 
 
+def cmd_self_update(args, out):
+    try:
+        latest = update.latest_version(timeout=15)
+    except (requests.RequestException, ValueError) as exc:
+        raise RepoError(f"cannot ask {update.index_url()} for the latest version: {exc}") from None
+    report = {"current": __version__, "latest": latest, "updated": False}
+    if not update.newer(latest):
+        out.result(report, f"dsmd {__version__} is the latest version")
+        return
+    if args.check:
+        out.result(report, f"dsmd {latest} is available (you have {__version__}); run: dsmd self-update")
+        return
+    argv, why_not = update.upgrade_command(latest)
+    if argv is None:
+        raise RepoError(why_not)
+    out.say(f"Updating dsmd {__version__} -> {latest}: {shlex.join(argv)}")
+    code = update.run(argv)
+    if code:
+        raise RepoError(f"the update failed (exit {code}); the command above shows why")
+    if code is None:
+        out.result({**report, "deferred": True}, f"The update to {latest} continues in a new window once dsmd exits.")
+        return
+    installed = update.installed_version()
+    if installed != latest:                 # pipx and uv exit 0 when they find nothing to do
+        raise RepoError(f"dsmd is still {installed} after the update, not {latest}; it was probably installed "
+                        "without --pre or from another index, so reinstall it the way you installed it")
+    out.result({**report, "updated": True}, f"Updated to dsmd {latest}")
+
+
 def cmd_help(args, out):
     if args.topic != "agents":
         raise RepoError("unknown help topic; try: dsmd help agents")
@@ -296,6 +328,8 @@ def parser():
     cmd.add_argument("--server")
     add("gui", cmd_gui, "launch the desktop app in the background (needs datasheets-md-gui)").add_argument(
         "--foreground", action="store_true", help="stay attached to the terminal and print its output")
+    add("self-update", cmd_self_update, "upgrade dsmd to the latest release").add_argument(
+        "--check", action="store_true", help="only say whether a newer release exists")
     add("help", cmd_help, "extra help topics").add_argument("topic", choices=["agents"])
     return p
 
@@ -313,6 +347,13 @@ def main(argv=None):
         return EXIT_ERROR
     except KeyboardInterrupt:
         return EXIT_ERROR
+    if args.command != "self-update" and not (args.json or args.quiet) and sys.stderr.isatty():
+        try:
+            line = update.notice()
+        except Exception:                   # a broken check never fails the command
+            line = None
+        if line:
+            print(line, file=sys.stderr)
     return code or EXIT_OK
 
 
