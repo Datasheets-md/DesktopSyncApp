@@ -16,6 +16,10 @@ on:
   push:
     tags: ['v*']
 
+# Read-only by default; the publish jobs add id-token: write for OIDC.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
