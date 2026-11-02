@@ -8,14 +8,15 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import QLoggingCategory, QThread, Signal
+from PySide6.QtCore import QLoggingCategory, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
-    QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .. import APP_NAME, __version__, auth, sync
@@ -88,6 +89,13 @@ class Window(QWidget):
         self.status_tree.setHeaderLabels(["Part", "File", "State"])
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)            # no total known: a moving bar that says "alive"
+        self.progress.setTextVisible(False)
+        self.progress.setMaximumWidth(160)
+        self.busy_label = QLabel()
+        self.timer = QTimer(self, interval=1000, timeout=self.tick)
+        self.started, self.last_line = 0.0, ""
 
         form = QFormLayout()
         form.addRow("Server", self.server)
@@ -110,6 +118,10 @@ class Window(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addLayout(actions)
+        busy = QHBoxLayout()
+        busy.addWidget(self.progress)
+        busy.addWidget(self.busy_label, 1)
+        layout.addLayout(busy)
         layout.addWidget(QLabel("Local changes"))
         layout.addWidget(self.status_tree, 2)
         layout.addWidget(QLabel("Log"))
@@ -139,6 +151,14 @@ class Window(QWidget):
 
     def say(self, text):
         self.log.appendPlainText(text)
+        self.last_line = text.strip()
+        if self.timer.isActive():
+            self.tick()
+
+    def tick(self):
+        """Elapsed time + the latest log line, so a long job visibly moves."""
+        seconds = int(time.monotonic() - self.started)
+        self.busy_label.setText(f"{seconds // 60}:{seconds % 60:02d}  {self.last_line}")
 
     def run(self, job, on_done):
         if self.worker and self.worker.isRunning():
@@ -154,6 +174,16 @@ class Window(QWidget):
     def set_busy(self, busy):
         for w in (self.sign_in, self.sign_out, self.open_button, self.pull_button, self.push_button):
             w.setEnabled(not busy)
+        self.progress.setVisible(busy)
+        self.busy_label.setVisible(busy)
+        if busy:
+            self.started, self.last_line = time.monotonic(), "Working..."
+            self.tick()
+            self.timer.start()
+            self.setCursor(Qt.BusyCursor)
+        else:
+            self.timer.stop()
+            self.unsetCursor()
 
     def update_buttons(self):
         self.set_busy(False)

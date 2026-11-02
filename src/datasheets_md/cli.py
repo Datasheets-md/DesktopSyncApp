@@ -242,7 +242,9 @@ def _globals(suppress):
 def parser():
     common = _globals(suppress=True)
     p = argparse.ArgumentParser(prog="dsmd", parents=[_globals(suppress=False)],
-                                description="A git-like working copy of your datasheets.md workspace.")
+                                description="A git-like working copy of your datasheets.md workspace.",
+                                epilog="Settings are files: edit settings/mapping.yaml or settings/symbol_style.yaml "
+                                       "(owner/admin), then dsmd push. Guide: dsmd help agents")
     p.add_argument("--version", action="version", version=f"dsmd {__version__}")
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
 
@@ -270,7 +272,7 @@ def parser():
     add("status", cmd_status, "show local changes")
     add("diff", cmd_diff, "show local changes as a diff").add_argument("target", nargs="?", help="part or path")
     add("restore", cmd_restore, "discard local changes").add_argument("target", nargs="?", help="part or path")
-    add("push", cmd_push, "send local changes to the workspace").add_argument(
+    add("push", cmd_push, "send local changes (parts and settings) to the workspace").add_argument(
         "-m", "--message", required=True, help="what changed and why")
     cmd = add("log", cmd_log, "server-side history of pushes")
     cmd.add_argument("part", nargs="?")

@@ -11,7 +11,7 @@ import os
 import shutil
 import webbrowser
 import zipfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import yaml
 
@@ -46,12 +46,11 @@ def _download(client, paths, say=_quiet):
     for start in range(0, len(paths), BATCH_FILES):
         chunk = paths[start:start + BATCH_FILES]
         out.update(client.post(f"{SYNC}/files/", {"paths": chunk})["files"])
-        if len(paths) > BATCH_FILES:
-            say(f"  downloaded {min(start + BATCH_FILES, len(paths))}/{len(paths)} files")
+        say(f"  downloaded {min(start + BATCH_FILES, len(paths))}/{len(paths)} files")
     return out
 
 
-def _markdown(client, uuids):
+def _markdown(client, uuids, say=_quiet):
     """{uuid: (datasheet.md text, {png name: bytes})} from the markdown download with
     its figures and every element-id sentinel kept, 8 parts at a time. A part
     whose markdown is gone since the manifest is left out."""
@@ -69,8 +68,15 @@ def _markdown(client, uuids):
             images = {n[len(IMAGES) + 1:]: archive.read(n) for n in names
                       if n.startswith(IMAGES + "/") and not n.endswith("/")}
             return uuid, (archive.read(md).decode("utf-8"), images)
+    out = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return {uuid: got for uuid, got in pool.map(one, uuids) if got}
+        for done, future in enumerate(as_completed([pool.submit(one, u) for u in uuids]), 1):
+            uuid, got = future.result()
+            if got:
+                out[uuid] = got
+            if len(uuids) <= 20 or done % 10 == 0 or done == len(uuids):
+                say(f"  datasheets {done}/{len(uuids)}")
+    return out
 
 
 def _put_images(folder, images):
@@ -103,6 +109,7 @@ def resolve_workspace(client, ident):
 
 
 def clone(client, workspace_ident, directory, parts=None, say=_quiet):
+    say("Reading the workspace...")
     workspace = resolve_workspace(client, workspace_ident)
     client.workspace_id = workspace["id"]
     manifest = _manifest(client, parts=parts)
@@ -117,7 +124,8 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
         wanted.update({path: (None, path, etag) for path, etag in manifest["settings"].items()})
         say(f"Cloning {workspace['name']} ({len(manifest['parts'])} parts, {len(wanted)} files) into {repo.root}")
         files = _download(client, [p for p, w in wanted.items() if w[1] != MARKDOWN], say)
-        md = _markdown(client, [w[0] for w in wanted.values() if w[1] == MARKDOWN])
+        md = _markdown(client, [w[0] for w in wanted.values() if w[1] == MARKDOWN], say)
+        say("Writing files...")
         for part in manifest["parts"]:
             repo.state["parts"][part["uuid"]] = {"path": part["path"], "files": {}}
         for path, (uuid, name, etag) in wanted.items():
@@ -142,6 +150,7 @@ def clone(client, workspace_ident, directory, parts=None, say=_quiet):
 
 def fetch(repo, client, say=_quiet):
     """Download what changed on the server into .dsmd/incoming/ (not the working copy)."""
+    say("Checking the server for changes...")
     manifest = _manifest(client, repo)
     known = repo.parts()
     wanted, md_etags = {}, {}
@@ -159,7 +168,7 @@ def fetch(repo, client, say=_quiet):
     files = _download(client, plain, say) if plain else {}
     incoming = repo.dot / "incoming"
     shutil.rmtree(incoming, ignore_errors=True)
-    for uuid, (text, images) in _markdown(client, list(md_etags)).items():
+    for uuid, (text, images) in _markdown(client, list(md_etags), say).items():
         path = next(p for p, k in wanted.items() if k == f"{uuid}/{MARKDOWN}")
         files[path] = {"etag": md_etags[uuid], "content": text}
         _put_images(repo.incoming(f"{uuid}/{IMAGES}"), images)
