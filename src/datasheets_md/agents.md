@@ -15,7 +15,9 @@ shell; add `--json` to any command for machine-readable output.
      settings (see below; owner or admin only).
 4. `dsmd diff` -- and show the diff to the user before pushing.
 5. `dsmd push -m "<what changed and why>"`.
-6. Exit code 2 means some parts were not applied: read the per-part lines
+6. Exit code 2 from `clone` or `pull` with a `library/ was not built` warning means the parts and
+   datasheets are in place; run `dsmd pull --library` to retry. A clone that stopped continues when you
+   run the same command again. Exit code 2 from `push` means some parts were not applied: read the per-part lines
    (`stale` -> run `dsmd pull`, then push again; `rejected` -> fix the named
    `file:line` and push again).
 

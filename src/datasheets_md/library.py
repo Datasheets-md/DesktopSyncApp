@@ -18,6 +18,7 @@ LIB = "datasheets"
 SQLITE = f"{LIB}.sqlite"
 DBL = f"{LIB}.kicad_dbl"
 KEY_COLUMN = "IPN"
+CAD_PAGE = 100
 STANDARD_COLUMNS = ["IPN", "Value", "Description", "Symbols", "Footprints", "Manufacturer", "MPN", "Package",
                     "Category", "Datasheet", "ComponentUrl", "Stock", "Price_USD", "DigiKey_PN"]
 _NON_PARAM_SECTIONS = {"header"}
@@ -52,7 +53,21 @@ def _pick(params, keys):
     return next((p["value"] for p in params if p["key"].strip().lower() in keys), "")
 
 
-def fetch_components(client):
+def fetch_cad(client, say=print):
+    """Every part's CAD, CAD_PAGE parts per call. A server without paging answers everything at once."""
+    parts, page = [], 1
+    while True:
+        payload = client.get("/workspace/components/cad-export/", params={"limit": CAD_PAGE, "page": page},
+                             retry_timeouts=False) or {}
+        parts += payload.get("parts") or []
+        if "total_count" in payload:
+            say(f"  library/ CAD {len(parts)}/{payload['total_count']}")
+        if not payload.get("has_next"):
+            return parts
+        page += 1
+
+
+def fetch_components(client, say=print):
     """Every workspace part shaped for the SQLite builder; one call per 100 parts."""
     components, page = [], 1
     while True:
@@ -71,6 +86,7 @@ def fetch_components(client):
                 "category": meta.get("category") or "",
                 "parameters": [p for p in params if p["key"].strip().lower() not in promoted],
             })
+        say(f"  library/ parts {len(components)}")
         if not payload.get("has_next"):
             return components
         page += 1
@@ -296,9 +312,9 @@ def build(client, out_dir, *, kicad=True, sqlite=True, say=print):
     if not (kicad or sqlite):
         return {"files": {}, "components": 0, "tables": 0, "symbols": 0, "footprints": 0}
     os.makedirs(out_dir, exist_ok=True)
-    components = fetch_components(client)
-    export = client.get("/workspace/components/cad-export/") if kicad else {}
-    parts = (export or {}).get("parts") or []
+    say("Building library/...")
+    components = fetch_components(client, say)
+    parts = fetch_cad(client, say) if kicad else []
     delivered = ref_map(parts) if kicad else {}
     columns = param_columns(components)
     tables = write_sqlite(os.path.join(out_dir, SQLITE), components, columns, delivered)

@@ -55,20 +55,19 @@ def _say_pending(manifest, say):
 
 
 def _download(client, paths, say=_quiet):
-    """{path: {etag, content}} for every path, BATCH_FILES per request."""
-    out = {}
+    """Yield {path: {etag, content}} for BATCH_FILES paths at a time, so a caller can
+    put each batch on disk before asking for the next."""
     for start in range(0, len(paths), BATCH_FILES):
         chunk = paths[start:start + BATCH_FILES]
-        out.update(client.post(f"{SYNC}/files/", {"paths": chunk})["files"])
+        yield client.post(f"{SYNC}/files/", {"paths": chunk})["files"]
         say(f"  downloaded {min(start + BATCH_FILES, len(paths))}/{len(paths)} files")
-    return out
 
 
 def _markdown(client, folders, say=_quiet):
-    """{folder: (datasheet.md text, {png name: bytes})} for {folder: part uuid}: the
-    family's stored document with its figures and every element-id sentinel kept,
-    downloaded through one of its parts, 8 at a time. A datasheet gone since the
-    manifest is left out."""
+    """Yield (folder, datasheet.md text, {png name: bytes}) for {folder: part uuid} as
+    each arrives: the family's stored document with its figures and every element-id
+    sentinel kept, downloaded through one of its parts, 8 at a time. A datasheet gone
+    since the manifest is left out. Stopping early drops the downloads still queued."""
     def one(folder, uuid):
         try:
             resp = client.get(f"/workspace/components/{uuid}/download-markdown/",
@@ -83,16 +82,18 @@ def _markdown(client, folders, say=_quiet):
             images = {n[len(IMAGES) + 1:]: archive.read(n) for n in names
                       if n.startswith(IMAGES + "/") and not n.endswith("/")}
             return folder, (archive.read(md).decode("utf-8"), images)
-    out = {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = [pool.submit(one, folder, uuid) for folder, uuid in folders.items()]
+    pool = ThreadPoolExecutor(max_workers=8)
+    try:
+        futures = {pool.submit(one, folder, uuid) for folder, uuid in folders.items()}
         for done, future in enumerate(as_completed(futures), 1):
+            futures.discard(future)                 # let the images go once they are on disk
             folder, got = future.result()
             if got:
-                out[folder] = got
+                yield (folder, *got)
             if len(folders) <= 20 or done % 10 == 0 or done == len(folders):
                 say(f"  datasheets {done}/{len(folders)}")
-    return out
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 def _put_images(folder, images):
@@ -134,51 +135,100 @@ def resolve_workspace(client, ident):
 
 
 def clone(client, workspace_ident, directory, parts=None, say=_quiet):
+    """Files reach the disk as they arrive and the state records them, so a clone
+    that stops keeps its work: the same call on the same folder continues it. The
+    cursor is set only at the end, and the working copy refuses fetch and push
+    until then. A failed library step leaves a finished clone (`library_error`)."""
     say("Reading the workspace...")
     workspace = resolve_workspace(client, workspace_ident)
     client.workspace_id = workspace["id"]
     manifest = _manifest(client, parts=parts)
     workspace = {**manifest["workspace"]}
-    repo = Repo.create(directory, client.server, workspace)
+    repo = Repo.unfinished(directory, client.server, workspace["id"])
+    if repo:
+        say(f"Continuing the clone in {repo.root}")
+    else:
+        repo = Repo.create(directory, client.server, workspace)
     with repo.lock():
-        repo.state.update(renderer=manifest["renderer"], sparse=parts or None, cursor=manifest.get("cursor"))
-        _say_pending(manifest, say)
-        wanted = {}
-        for part in manifest["parts"]:
-            for name, etag in _wanted(part["files"]).items():
-                wanted[f"{part['path']}/{name}"] = (part["uuid"], name, etag)
-        wanted.update({path: (None, path, etag) for path, etag in manifest["settings"].items()})
-        sheets = _datasheets(repo, manifest)
-        say(f"Cloning {workspace['name']} ({len(manifest['parts'])} parts, {len(wanted)} files, "
-            f"{len(sheets)} datasheets) into {repo.root}")
-        files = _download(client, list(wanted), say)
-        md = _markdown(client, {folder: sheet["part"] for folder, sheet in sheets.items()}, say)
-        say("Writing files...")
-        for folder, (text, images) in md.items():
-            repo.put(f"{folder}/{MARKDOWN}", text)
-            _put_images(repo.working(folder) / IMAGES, images)
-            _sheets(repo)[folder] = sheets[folder]["etag"]
-        for part in manifest["parts"]:
-            repo.state["parts"][part["uuid"]] = {"path": part["path"], "files": {}}
-        for path, (uuid, name, etag) in wanted.items():
-            got = files.get(path)
-            if got is None:
-                continue
-            repo.put(path, got["content"])
-            if uuid:
-                repo.state["parts"][uuid]["files"][name] = got["etag"]
-            else:
-                repo.state["settings"][path] = got["etag"]
+        repo.state.update(renderer=manifest["renderer"], sparse=parts or None, incomplete=True)
         repo.save()
-        build_library(repo, client, say)
-    return {"root": str(repo.root), "workspace": workspace, "parts": len(manifest["parts"]), "files": len(files),
-            "datasheets": len(md)}
+        _say_pending(manifest, say)
+        try:
+            files, sheets = _clone_files(repo, client, manifest, say)
+        except (ApiError, KeyboardInterrupt):
+            say("Stopped; everything downloaded so far is kept. Run the same dsmd clone command to continue.")
+            raise
+        del repo.state["incomplete"]
+        repo.state["cursor"] = manifest.get("cursor")
+        repo.save()
+        error = _try_library(repo, client, say)
+    return {"root": str(repo.root), "workspace": workspace, "parts": len(manifest["parts"]), "files": files,
+            "datasheets": sheets, "library_error": error}
+
+
+def _clone_files(repo, client, manifest, say):
+    """Bring the working copy to the manifest, skipping what an earlier try already
+    wrote. Returns how many files and datasheets it now holds."""
+    _drop_stale(repo, manifest)
+    parts = repo.parts()
+    wanted = {}
+    for part in manifest["parts"]:
+        parts.setdefault(part["uuid"], {"path": part["path"], "files": {}})["path"] = part["path"]
+        for name, etag in _wanted(part["files"]).items():
+            wanted[f"{part['path']}/{name}"] = (part["uuid"], name, etag)
+    wanted.update({path: (None, path, etag) for path, etag in manifest["settings"].items()})
+
+    def recorded(uuid, name):
+        return parts[uuid]["files"].get(name) if uuid else repo.state["settings"].get(name)
+    todo = [path for path, (uuid, name, etag) in wanted.items() if recorded(uuid, name) != etag]
+    listed, have = _datasheets(repo, manifest), _sheets(repo)
+    sheets = {folder: sheet["part"] for folder, sheet in listed.items() if have.get(folder) != sheet["etag"]}
+    say(f"Cloning {repo.state.get('workspace_name')} ({len(manifest['parts'])} parts, {len(todo)} files, "
+        f"{len(sheets)} datasheets) into {repo.root}")
+    for batch in _download(client, todo, say):
+        for path, got in batch.items():
+            uuid, name, _ = wanted[path]
+            repo.put(path, got["content"])
+            (parts[uuid]["files"] if uuid else repo.state["settings"])[name] = got["etag"]
+        repo.save()
+    for done, (folder, text, images) in enumerate(_markdown(client, sheets, say), 1):
+        repo.put(f"{folder}/{MARKDOWN}", text)
+        shutil.rmtree(repo.working(folder) / IMAGES, ignore_errors=True)
+        _put_images(repo.working(folder) / IMAGES, images)
+        have[folder] = listed[folder]["etag"]
+        if done % 10 == 0:
+            repo.save()
+    repo.save()
+    files = sum(recorded(uuid, name) is not None for uuid, name, _ in wanted.values())
+    return files, sum(folder in have for folder in listed)
+
+
+def _drop_stale(repo, manifest):
+    """What an earlier try of a clone wrote that the server has since moved or removed."""
+    parts, report = repo.parts(), {"warnings": []}
+    listed = {part["uuid"]: part for part in manifest["parts"]}
+    for uuid, entry in list(parts.items()):
+        part = listed.get(uuid)
+        if part and entry["path"] != part["path"] and repo.move(entry["path"], part["path"]):
+            entry["path"] = part["path"]
+            continue
+        wanted = _wanted(part["files"]) if part and entry["path"] == part["path"] else {}
+        for name in [n for n in entry["files"] if n not in wanted]:
+            repo.remove(f"{entry['path']}/{name}")
+            del entry["files"][name]
+        if not part:
+            del parts[uuid]
+    sheets, have = _datasheets(repo, manifest), _sheets(repo)
+    for folder in [f for f in have if f not in sheets]:
+        _drop_datasheet(repo, folder, report)
+        del have[folder]
 
 
 # ----- fetch / pull ----------------------------------------------------------------------
 
 def fetch(repo, client, say=_quiet):
     """Download what changed on the server into .dsmd/incoming/ (not the working copy)."""
+    _require_finished(repo)
     say("Checking the server for changes...")
     manifest = _manifest(client, repo, incremental=True)
     _say_pending(manifest, say)
@@ -192,17 +242,17 @@ def fetch(repo, client, say=_quiet):
     for path, etag in manifest["settings"].items():
         if repo.state["settings"].get(path) != etag:
             wanted[path] = path
-    files = _download(client, list(wanted), say) if wanted else {}
     incoming = repo.dot / "incoming"
     shutil.rmtree(incoming, ignore_errors=True)
-    for path, key in wanted.items():
-        if path in files:
-            repo.write(repo.incoming(key), files[path]["content"])
-    pending = {key: files[path]["etag"] for path, key in wanted.items() if path in files}
+    pending = {}
+    for batch in _download(client, list(wanted), say):
+        for path, got in batch.items():
+            repo.write(repo.incoming(wanted[path]), got["content"])
+            pending[wanted[path]] = got["etag"]
     sheets, have = _datasheets(repo, manifest), _sheets(repo)
     changed = {folder: sheet["part"] for folder, sheet in sheets.items() if have.get(folder) != sheet["etag"]}
     pending_sheets = {}
-    for folder, (text, images) in _markdown(client, changed, say).items():
+    for folder, text, images in _markdown(client, changed, say):
         repo.write(repo.incoming(f"{folder}/{MARKDOWN}"), text)
         _put_images(repo.incoming(f"{folder}/{IMAGES}"), images)
         pending_sheets[folder] = sheets[folder]["etag"]
@@ -303,8 +353,10 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     repo.save()
     shutil.rmtree(repo.dot / "incoming", ignore_errors=True)
     changed = summary["changed_files"] or summary["new_parts"] or summary["removed_parts"]
-    if changed or rebuild_library:
-        build_library(repo, client, say)
+    if changed or rebuild_library or library_missing(repo):
+        report["library_error"] = _try_library(repo, client, say)
+        if report["library_error"]:
+            report["warnings"].append(report["library_error"])
     return report
 
 
@@ -343,11 +395,42 @@ def _pull_datasheets(repo, listed, pending, report):
 
 
 def build_library(repo, client, say=_quiet):
+    """`library_pending` stays set until a build finishes, so the next pull tries again."""
     cfg = repo.config()
+    repo.state["library_pending"] = True
+    repo.save()
     result = library.build(client, str(repo.working(LIBRARY_DIR)), kicad=cfg["kicad"], sqlite=cfg["sqlite"], say=say)
     repo.state["library"] = result["files"]
+    del repo.state["library_pending"]
     repo.save()
     return result
+
+
+def _try_library(repo, client, say):
+    """Build library/; a server failure is a message, not an error: the parts and datasheets are in place."""
+    try:
+        build_library(repo, client, say)
+    except ApiError as exc:
+        return f"library/ was not built ({exc}); the parts and datasheets are in place, retry with dsmd pull --library"
+    return None
+
+
+def library_missing(repo):
+    """library/ should exist and does not, or its last build did not finish."""
+    cfg = repo.config()
+    if not (cfg["kicad"] or cfg["sqlite"]):
+        return False
+    folder = repo.working(LIBRARY_DIR)
+    return bool(repo.state.get("library_pending")) or not folder.is_dir() or not any(folder.iterdir())
+
+
+def _resume_command(repo):
+    return f"dsmd clone {repo.state['workspace_id']} {repo.root} --server {repo.state['server']}"
+
+
+def _require_finished(repo):
+    if repo.state.get("incomplete"):
+        raise RepoError(f"this clone did not finish; continue it with: {_resume_command(repo)}")
 
 
 # ----- status / diff / restore ----------------------------------------------------------------
@@ -399,10 +482,13 @@ def status(repo):
                 if rel not in tracked:
                     untracked.append(rel)
     generated = [f"{LIBRARY_DIR}/{rel}" for rel in library.edited(str(repo.working(LIBRARY_DIR)), repo.state.get("library"))]
+    incomplete, missing = bool(repo.state.get("incomplete")), library_missing(repo)
     return {"workspace": {"id": repo.state["workspace_id"], "name": repo.state.get("workspace_name")},
             "server": repo.state["server"], "parts": parts, "settings": settings, "datasheets": datasheets,
             "untracked": untracked, "generated_edited": generated,
-            "clean": not (parts or settings or datasheets or generated)}
+            "incomplete": _resume_command(repo) if incomplete else None, "library_missing": missing,
+            "nothing_to_push": not (parts or settings or datasheets or generated),
+            "clean": not (parts or settings or datasheets or generated or incomplete or missing)}
 
 
 def _selected(repo, target):
@@ -449,6 +535,7 @@ class PushRefused(RepoError):
 
 
 def push(repo, client, message, say=_quiet):
+    _require_finished(repo)
     report = status(repo)
     blocked = [f["path"] for p in report["parts"] for f in p["files"] if f["state"] in ("read-only-edited", "conflicted")]
     blocked += [s["path"] for s in report["settings"] + report["datasheets"]
@@ -515,6 +602,7 @@ def log(repo, client, target=None, page=1):
 
 
 def part_add(repo, client, part_number, manufacturer=None, say=_quiet):
+    _require_finished(repo)
     found = client.get("/public/search/", params={"q": part_number, "limit": 50}, workspace=False)
     rows = [r for r in found.get("components") or [] if (r.get("part_number") or "").lower() == part_number.lower()]
     if manufacturer:
@@ -535,6 +623,7 @@ def part_add(repo, client, part_number, manufacturer=None, say=_quiet):
 
 
 def part_rm(repo, client, ident, say=_quiet):
+    _require_finished(repo)
     uuid = repo.resolve(ident)
     client.delete(f"/workspace/components/{uuid}/")
     say(f"Removed {repo.parts()[uuid]['path']} from the workspace")

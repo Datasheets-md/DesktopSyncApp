@@ -72,6 +72,16 @@ class Repo:
         repo.save()
         return repo
 
+    @classmethod
+    def unfinished(cls, root, server, workspace_id):
+        """The clone that stopped in `root`, to continue; None when there is none."""
+        repo = cls(root)
+        if not (repo.dot / STATE).is_file():
+            return None
+        repo.load()
+        same = repo.state.get("server") == server and repo.state.get("workspace_id") == workspace_id
+        return repo if repo.state.get("incomplete") and same else None
+
     # ----- state ---------------------------------------------------------------
 
     def load(self):

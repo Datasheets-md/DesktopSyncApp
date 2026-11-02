@@ -279,7 +279,9 @@ class Window(QWidget):
             QMessageBox.information(self, APP_NAME, "Sign in and pick a workspace to clone.")
             return
         self.run(lambda say: sync.clone(self.client(), workspace_id, folder, say=say),
-                 lambda result: (self.say(f"Cloned {result['parts']} parts"), self.attach(folder)))
+                 lambda result: (self.say(f"Cloned {result['parts']} parts"),
+                                 result["library_error"] and self.say(f"warning {result['library_error']}"),
+                                 self.attach(folder)))
 
     def repo_client(self):
         return self.client(self.repo.state["workspace_id"]) if self.repo else None

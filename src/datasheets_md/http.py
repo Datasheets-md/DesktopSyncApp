@@ -53,7 +53,10 @@ class Client:
         self.session = session or requests.Session()
         self.session.headers["User-Agent"] = f"dsmd/{__version__}"
 
-    def request(self, method, path, *, json=None, params=None, workspace=True, timeout=120, raw=False):
+    def request(self, method, path, *, json=None, params=None, workspace=True, timeout=120, raw=False,
+                retry_timeouts=True):
+        """`retry_timeouts=False` for work that would only time out again: a retry
+        starts it over on the server while the first attempt may still be running."""
         url = path if path.startswith("http") else f"{self.server}{API_PREFIX}{path}"
         refreshed = False
         for attempt in range(RETRIES + 1):
@@ -63,14 +66,14 @@ class Client:
             try:
                 resp = self.session.request(method, url, json=json, params=params, headers=headers, timeout=timeout)
             except requests.RequestException as exc:
-                if attempt == RETRIES:
+                if attempt == RETRIES or (not retry_timeouts and isinstance(exc, requests.Timeout)):
                     raise ApiError(f"cannot reach {self.server}: {exc}") from None
                 time.sleep(2 ** attempt)
                 continue
             if resp.status_code == 401 and not refreshed and self.auth.refresh():
                 refreshed = True
                 continue
-            if resp.status_code in RETRY_STATUSES and attempt < RETRIES:
+            if resp.status_code in RETRY_STATUSES and attempt < RETRIES and (retry_timeouts or resp.status_code != 504):
                 delay = resp.headers.get("Retry-After")
                 time.sleep(min(float(delay), 30) if delay and delay.isdigit() else 2 ** attempt)
                 continue

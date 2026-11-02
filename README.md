@@ -25,6 +25,13 @@ or the pip of its venv). Set `DSMD_NO_UPDATE_CHECK=1` to turn the check off; it
 also stays off under `CI`, with `--json` or `--quiet`, and when stderr is not a
 terminal.
 
+A clone of a large workspace can stop part way (network, Ctrl-C, a closed laptop)
+without losing what it downloaded: files reach the disk as they arrive, and running
+the same `dsmd clone` command again continues it. Until it finishes, `dsmd status`
+says so and `fetch`, `pull` and `push` refuse. If only the library step fails, the
+parts and datasheets are in place, `dsmd` exits with code 2, and `dsmd pull --library`
+(or the next `dsmd pull`) builds `library/`.
+
 ## Use
 
 ```bash

@@ -1,6 +1,6 @@
 """`dsmd` -- a git-like working copy of a datasheets.md workspace.
 
-Exit codes: 0 ok; 1 error; 2 completed, but with conflicts or stale/rejected parts.
+Exit codes: 0 ok; 1 error; 2 completed, but with conflicts, stale/rejected parts or no library/.
 """
 import argparse
 import json
@@ -80,7 +80,10 @@ def cmd_clone(args, out):
     parts = [p.strip() for p in args.parts.split(",") if p.strip()] if args.parts else None
     directory = args.dir or str(args.workspace).replace(" ", "-").lower()
     done = sync.clone(client, args.workspace, os.path.join(args.C or ".", directory), parts=parts, say=out.say)
-    out.result(done, f"Cloned {done['parts']} parts into {done['root']}")
+    lines = [f"Cloned {done['parts']} parts into {done['root']}"]
+    lines += [f"warning   {done['library_error']}"] if done["library_error"] else []
+    out.result(done, "\n".join(lines))
+    return EXIT_PARTIAL if done["library_error"] else EXIT_OK
 
 
 def cmd_fetch(args, out):
@@ -104,7 +107,7 @@ def cmd_pull(args, out):
     lines += [f"saved     {p} (your edit of a read-only file)" for p in report["saved_local"]]
     lines += [f"warning   {w}" for w in report["warnings"]]
     out.result(report, "\n".join(lines))
-    return EXIT_PARTIAL if report["conflicts"] else EXIT_OK
+    return EXIT_PARTIAL if report["conflicts"] or report.get("library_error") else EXIT_OK
 
 
 def cmd_status(args, out):
@@ -117,8 +120,14 @@ def cmd_status(args, out):
     lines += [f"{s['state']:<22} {s['path']}" for s in report["settings"] + report["datasheets"]]
     lines += [f"generated, will be overwritten: {p}" for p in report["generated_edited"]]
     lines += [f"untracked, ignored: {p}/" for p in report["untracked"]]
+    if report["incomplete"]:
+        lines.append(f"The clone did not finish; continue it with: {report['incomplete']}")
+    elif report["library_missing"]:
+        lines.append("library/ is not built; run dsmd pull --library")
     if report["clean"]:
         lines.append("Nothing to push; working copy clean.")
+    elif report["nothing_to_push"]:
+        lines.append("Nothing to push.")
     out.result(report, "\n".join(lines))
 
 
