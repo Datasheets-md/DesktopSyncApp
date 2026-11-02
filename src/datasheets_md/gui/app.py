@@ -6,12 +6,13 @@ that the CLI does not have.
 """
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 import platformdirs
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QLoggingCategory, QThread, Signal
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMessageBox, QPlainTextEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
@@ -22,6 +23,9 @@ from ..http import ApiError, Client
 from ..repo import Repo, RepoError
 
 PREFS = Path(platformdirs.user_config_dir("datasheets-md")) / "gui.json"
+LOG = Path(platformdirs.user_state_dir("datasheets-md")) / "gui.log"
+APP_ID = "md.datasheets.dbsync"
+FROZEN = getattr(sys, "frozen", False)      # PyInstaller binary: no terminal, no venv paths
 
 
 def _resource(name):
@@ -64,8 +68,6 @@ class Window(QWidget):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(720, 640)
-        if os.path.exists(_resource("icon.png")):
-            self.setWindowIcon(QIcon(_resource("icon.png")))
         prefs = _prefs()
         self.repo = None
         self.worker = None
@@ -288,8 +290,48 @@ class Window(QWidget):
         self.run(job, done)
 
 
-def main():
-    app = QApplication.instance() or QApplication(sys.argv)
+def _detach():
+    """Relaunch in the background with output in LOG, so the terminal gets its prompt back."""
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    flags = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
+             if sys.platform == "win32" else {"start_new_session": True})
+    with open(LOG, "ab") as log:
+        subprocess.Popen([sys.executable, "-m", "datasheets_md.gui.app", "--foreground"],
+                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, **flags)
+    print(f"{APP_NAME} started; log: {LOG}")
+    return 0
+
+
+def _desktop_entry():
+    """Wayland ignores window icons: the taskbar takes the icon from the .desktop file named
+    after the app id. Rewritten when stale, since the venv paths move on reinstall."""
+    path = Path(platformdirs.user_data_dir("applications")) / f"{APP_ID}.desktop"
+    text = (f"[Desktop Entry]\nType=Application\nName={APP_NAME}\nComment=datasheets.md workspace sync\n"
+            f"Exec={sys.executable} -m datasheets_md.gui.app --foreground\nIcon={_resource('icon.png')}\n"
+            "Terminal=false\nCategories=Development;Electronics;\n")
+    try:
+        if not path.exists() or path.read_text() != text:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+    except OSError:
+        pass                                # cosmetic: never block the window over an icon
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if "--foreground" not in argv and not FROZEN:
+        return _detach()
+    # Qt's Wayland text-input warns on every refocus (a window drag); harmless. QT_LOGGING_RULES still wins.
+    QLoggingCategory.setFilterRules("qt.qpa.wayland.textinput=false")
+    if sys.platform == "win32":             # taskbar button under our icon, not python.exe's
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    elif sys.platform.startswith("linux") and not FROZEN:
+        _desktop_entry()
+    QGuiApplication.setDesktopFileName(APP_ID)
+    app = QApplication.instance() or QApplication(sys.argv[:1])
+    if os.path.exists(_resource("icon.png")):
+        app.setWindowIcon(QIcon(_resource("icon.png")))   # every window + the macOS dock
     window = Window()
     window.show()
     return app.exec()

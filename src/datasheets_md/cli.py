@@ -216,7 +216,7 @@ def cmd_gui(args, out):
         from .gui.app import main as gui_main
     except ImportError as exc:
         raise RepoError(f'the GUI needs PySide6: pip install datasheets-md-gui ({exc})') from None
-    return gui_main()
+    return gui_main(["--foreground"] if args.foreground else [])
 
 
 def cmd_help(args, out):
@@ -290,7 +290,8 @@ def parser():
     cmd.add_argument("message", nargs="+")
     cmd.add_argument("--kind", choices=sync.FEEDBACK_KINDS, default="other")
     cmd.add_argument("--server")
-    add("gui", cmd_gui, "launch the desktop app (needs datasheets-md-gui)")
+    add("gui", cmd_gui, "launch the desktop app in the background (needs datasheets-md-gui)").add_argument(
+        "--foreground", action="store_true", help="stay attached to the terminal and print its output")
     add("help", cmd_help, "extra help topics").add_argument("topic", choices=["agents"])
     return p
 
