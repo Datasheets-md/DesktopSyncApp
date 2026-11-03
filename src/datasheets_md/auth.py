@@ -2,7 +2,7 @@
 
 Browser OAuth against main-api's authorization server: dynamic client
 registration once per server, PKCE S256, and a loopback redirect on a free
-port. Credentials live in the user config dir (mode 0600), keyed by server.
+port. Credentials live in ~/.datasheets-md (mode 0600), keyed by server.
 `DSMD_TOKEN` (a `dsh_` key) overrides them for headless use, `DSMD_SERVER`
 the server.
 """
@@ -16,10 +16,10 @@ import threading
 import time
 import urllib.parse
 import webbrowser
-from pathlib import Path
 
-import platformdirs
 import requests
+
+from . import user_dir
 
 DEFAULT_SERVER = "https://api.datasheets.md"
 CLIENT_NAME = "dsmd"
@@ -34,7 +34,7 @@ class AuthError(Exception):
 
 
 def credentials_path():
-    return Path(platformdirs.user_config_dir("datasheets-md")) / "credentials.json"
+    return user_dir() / "credentials.json"
 
 
 def _load():
@@ -47,12 +47,15 @@ def _load():
 
 def _save(data):
     path = credentials_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        json.dump(data, fh, indent=2)
-    os.replace(tmp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump(data, fh, indent=2)
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise AuthError(f"cannot save the sign-in to {path}: {exc}") from exc
 
 
 def default_server(explicit=None):

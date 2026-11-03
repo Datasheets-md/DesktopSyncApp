@@ -23,11 +23,10 @@ import time
 from importlib import metadata
 from pathlib import Path
 
-import platformdirs
 import requests
 from packaging.version import InvalidVersion, Version
 
-from . import __version__
+from . import __version__, user_dir
 
 PACKAGE = "datasheets-md"
 GUI_PACKAGE = "datasheets-md-gui"
@@ -65,7 +64,7 @@ def newer(latest):
 
 
 def _cache_file():
-    return Path(platformdirs.user_cache_dir("datasheets-md")) / "update-check.json"
+    return user_dir() / "update-check.json"
 
 
 def notice():

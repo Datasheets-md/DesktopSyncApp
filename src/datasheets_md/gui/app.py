@@ -19,12 +19,13 @@ from PySide6.QtWidgets import (
     QLineEdit, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
-from .. import APP_NAME, __version__, auth, sync
+from . import open_log
+from .. import APP_NAME, __version__, auth, sync, user_dir
 from ..http import ApiError, Client
 from ..repo import Repo, RepoError
 
-PREFS = Path(platformdirs.user_config_dir("datasheets-md")) / "gui.json"
-LOG = Path(platformdirs.user_state_dir("datasheets-md")) / "gui.log"
+PREFS = user_dir() / "gui.json"
+LOG = user_dir() / "gui.log"
 APP_ID = "md.datasheets.dbsync"
 FROZEN = getattr(sys, "frozen", False)      # PyInstaller binary: no terminal, no venv paths
 
@@ -42,8 +43,11 @@ def _prefs():
 
 
 def _save_prefs(**values):
-    PREFS.parent.mkdir(parents=True, exist_ok=True)
-    PREFS.write_text(json.dumps({**_prefs(), **values}, indent=2))
+    try:
+        PREFS.parent.mkdir(parents=True, exist_ok=True)
+        PREFS.write_text(json.dumps({**_prefs(), **values}, indent=2))
+    except OSError:
+        pass                                # remembered choices only: never block the action
 
 
 class Worker(QThread):
@@ -326,13 +330,14 @@ class Window(QWidget):
 
 def _detach():
     """Relaunch in the background with output in LOG, so the terminal gets its prompt back."""
-    LOG.parent.mkdir(parents=True, exist_ok=True)
+    path, log = open_log(LOG)
     flags = ({"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP}
              if sys.platform == "win32" else {"start_new_session": True})
-    with open(LOG, "ab") as log:
-        subprocess.Popen([sys.executable, "-m", "datasheets_md.gui.app", "--foreground"],
-                         stdin=subprocess.DEVNULL, stdout=log, stderr=log, **flags)
-    print(f"{APP_NAME} started; log: {LOG}")
+    subprocess.Popen([sys.executable, "-m", "datasheets_md.gui", "--foreground"],
+                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, **flags)
+    if path:
+        log.close()
+    print(f"{APP_NAME} started; log: {path or 'none, no writable folder'}")
     return 0
 
 
