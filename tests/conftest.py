@@ -43,7 +43,7 @@ class FakeServer:
         # One per family, downloaded through `part`.
         self.datasheets = {SHEET: {"part": PART, "images": {"ff44.png": b"PNG1"},
                                    "text": "## Page 1\n{{figure:ff44 bbox=0,0,1,1}}\n![Pinout](images/ff44.png)\n"}}
-        self.settings = {"settings/mapping.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
+        self.settings = {"settings/mappings/1-default.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
         self.pushes = []
         self.feedback = []
         self.reject = None

@@ -16,7 +16,7 @@ def test_clone_writes_working_base_state(repo, server):
         rel = f"{PATH}/{name}"
         assert repo.read(repo.working(rel)) == text == repo.read(repo.base(rel))
         assert repo.parts()[PART]["files"][name] == etag(text)
-    assert repo.read(repo.working("settings/mapping.yaml")) == "name: default\n"
+    assert repo.read(repo.working("settings/mappings/1-default.yaml")) == "name: default\n"
     assert (repo.root / ".gitignore").read_text() == ".dsmd/\n"
     assert repo.config() == {"markdown": True, "kicad": True, "sqlite": True}
     assert (repo.root / "library" / "datasheets.sqlite").exists()
@@ -77,7 +77,7 @@ def test_push_applies_and_takes_the_server_version(repo, server):
 
 
 def test_settings_are_editable_and_pushed_first(repo, server):
-    rel = "settings/mapping.yaml"
+    rel = "settings/mappings/1-default.yaml"
     repo.write(repo.working(rel), "name: default\ncustom_categories: [Gate drivers]\n")
     assert sync.status(repo)["settings"] == [{"path": rel, "state": "modified"}]
     result = sync.push(repo, server, "add a category")
@@ -85,6 +85,50 @@ def test_settings_are_editable_and_pushed_first(repo, server):
     sent = server.pushes[0]
     assert sent["parts"] == [] and list(sent["settings"]) == [rel]
     assert server.settings[rel] == repo.read(repo.base(rel))
+    assert sync.status(repo)["clean"]
+
+
+def test_every_listed_mapping_is_pulled_and_editable(repo, server):
+    rel = "settings/mappings/9-intel-key-only.yaml"
+    server.settings[rel] = "name: Intel (Key only)\nactive_for: [kicad_export]\n"
+    sync.pull(repo, server)
+    assert "kicad_export" in repo.read(repo.working(rel))
+    repo.write(repo.working(rel), "name: Intel (Key only)\nactive_for: [kicad_export]\ncustom_units: []\n")
+    assert sync.status(repo)["settings"] == [{"path": rel, "state": "modified"}]
+    assert sync.push(repo, server, "edit")["applied"] == [{"path": rel, "errors": []}]
+    assert list(server.pushes[0]["settings"]) == [rel]
+
+
+def test_setting_gone_from_server_is_removed_unless_edited(repo, server):
+    clean, edited = "settings/mappings/1-default.yaml", "settings/mapping.yaml"
+    server.settings[edited] = "name: old layout\n"
+    sync.pull(repo, server)
+    repo.write(repo.working(edited), "name: old layout\ncustom_units: []\n")
+    del server.settings[clean], server.settings[edited]
+    report = sync.pull(repo, server)
+    assert not repo.working(clean).exists()
+    assert "custom_units" in repo.read(repo.working(edited))
+    assert edited in report["warnings"][0] and "local edits" in report["warnings"][0]
+    assert not ({clean, edited} & set(repo.state["settings"]))
+    assert sync.status(repo)["settings"] == []
+
+
+def test_push_of_a_rename_moves_the_file(repo, server, monkeypatch):
+    old, new = "settings/mappings/1-default.yaml", "settings/mappings/1-renamed.yaml"
+    repo.write(repo.working(old), "name: renamed\n")
+    real_post = server.post
+
+    def post(path, body=None, **kwargs):
+        response = real_post(path, body, **kwargs)
+        if path.endswith("/push/"):
+            server.settings[new] = server.settings.pop(old)
+            for outcome in response["settings"]:
+                outcome["files"] = {new: outcome["files"][old]}
+        return response
+    monkeypatch.setattr(server, "post", post)
+    sync.push(repo, server, "rename")
+    assert not repo.working(old).exists() and repo.read(repo.working(new)) == "name: renamed\n"
+    assert list(repo.state["settings"]).count(new) == 1 and old not in repo.state["settings"]
     assert sync.status(repo)["clean"]
 
 

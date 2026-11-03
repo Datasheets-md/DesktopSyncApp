@@ -23,8 +23,8 @@ from .repo import Repo, RepoError
 SYNC = "/workspace/sync"
 BATCH_FILES = 100
 BATCH_PARTS = 20
-SETTINGS = ("settings/mapping.yaml", "settings/symbol_style.yaml")
-EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml", *SETTINGS)
+SETTINGS_DIR = "settings/"     # every file under it is editable; the server lists them
+EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml")
 MARKDOWN = "datasheet.md"      # one per family datasheet folder (datasheets/<manufacturer>/<pdf name>/)
 IMAGES = "images"               # the figures datasheet.md links to, next to it
 LIBRARY_DIR = "library"
@@ -337,8 +337,11 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
             entry["files"][name] = pending[key]
     for path in manifest["settings"]:
         if path in pending:
-            _merge_into(repo, path, path, repo.read(repo.incoming(path)), path in EDITABLE, report)
+            _merge_into(repo, path, path, repo.read(repo.incoming(path)), True, report)
             repo.state["settings"][path] = pending[path]
+    dropped = [path for path in repo.state["settings"] if path not in manifest["settings"]]
+    for path in dropped:
+        _drop_setting(repo, path, report)
     _pull_datasheets(repo, _datasheets(repo, manifest), saved.get("datasheets") or {}, report)
     for uuid in _gone(manifest, parts):
         entry = parts.pop(uuid)
@@ -352,12 +355,23 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     repo.state["cursor"] = manifest.get("cursor")
     repo.save()
     shutil.rmtree(repo.dot / "incoming", ignore_errors=True)
-    changed = summary["changed_files"] or summary["new_parts"] or summary["removed_parts"]
+    changed = summary["changed_files"] or summary["new_parts"] or summary["removed_parts"] or dropped
     if changed or rebuild_library or library_missing(repo):
         report["library_error"] = _try_library(repo, client, say)
         if report["library_error"]:
             report["warnings"].append(report["library_error"])
     return report
+
+
+def _drop_setting(repo, path, report):
+    """A settings file the server no longer lists (a mapping renamed or deleted,
+    or the single settings/mapping.yaml of older versions): edits stay, untracked."""
+    unmodified = _unmodified(repo, path)
+    if not unmodified:
+        report["warnings"].append(f"{path} is gone from the server but has local edits; kept, untracked. "
+                                  f"Redo them in the matching file under {SETTINGS_DIR}")
+    repo.remove(path, working=unmodified)
+    del repo.state["settings"][path]
 
 
 def _drop_datasheet(repo, folder, report):
@@ -443,7 +457,7 @@ def _file_state(repo, rel, name):
         return None
     if has_conflict(local):
         return "conflicted"
-    return "modified" if name in EDITABLE else "read-only-edited"
+    return "modified" if name in EDITABLE or name.startswith(SETTINGS_DIR) else "read-only-edited"
 
 
 def status(repo):
@@ -569,7 +583,11 @@ def push(repo, client, message, say=_quiet):
             path = outcome["path"]
             result.setdefault(outcome["status"], []).append({"path": path, "errors": outcome.get("errors") or []})
             if outcome["status"] == "applied":
-                for served, file in (outcome.get("files") or {}).items():
+                served_files = outcome.get("files") or {}
+                if served_files and path not in served_files:    # a renamed mapping's file follows its name
+                    repo.remove(path)
+                    del repo.state["settings"][path]
+                for served, file in served_files.items():
                     repo.put(served, file["content"])
                     repo.state["settings"][served] = file["etag"]
                 cad_changed = True               # the mapping and symbol style feed the KiCad library
@@ -644,7 +662,7 @@ def pdf(repo, client, ident):
 
 
 def categories(client):
-    """The catalogue's categories -- the ids settings/mapping.yaml's category_map is keyed by."""
+    """The catalogue's categories -- the ids a mapping file's category_map is keyed by."""
     return client.get("/workspace/mappings/system-categories/")["categories"]
 
 

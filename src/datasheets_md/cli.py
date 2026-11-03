@@ -145,7 +145,7 @@ def cmd_restore(args, out):
 
 
 def _where(path, error):
-    """`parts/X/Y/pins.csv:3` for a part's file, `settings/mapping.yaml:3` for a settings file."""
+    """`parts/X/Y/pins.csv:3` for a part's file, `settings/symbol_style.yaml:3` for a settings file."""
     name = error.get("file")
     where = path if not name or name == path else f"{path}/{name}"
     return where + (f":{error['line']}" if error.get("line") else "")
@@ -286,7 +286,7 @@ def parser():
     common = _globals(suppress=True)
     p = argparse.ArgumentParser(prog="dsmd", parents=[_globals(suppress=False)],
                                 description="A git-like working copy of your datasheets.md workspace.",
-                                epilog="Settings are files: edit settings/mapping.yaml or settings/symbol_style.yaml "
+                                epilog="Settings are files: edit settings/mappings/*.yaml or settings/symbol_style.yaml "
                                        "(owner/admin), then dsmd push. Guide: dsmd help agents")
     p.add_argument("--version", action="version", version=f"dsmd {__version__}")
     sub = p.add_subparsers(dest="command", required=True, metavar="<command>")
@@ -330,7 +330,7 @@ def parser():
     prm.add_argument("--yes", "-y", action="store_true", help="do not ask")
     add("pdf", cmd_pdf, "download a part's PDF into .dsmd/cache and print its path").add_argument("part")
     add("open", cmd_open, "open a part's web page").add_argument("part")
-    add("categories", cmd_categories, "list the catalogue categories (the ids settings/mapping.yaml's category_map uses)")
+    add("categories", cmd_categories, "list the catalogue categories (the ids a mapping file's category_map uses)")
     cmd = add("feedback", cmd_feedback, "tell the datasheets.md team about a bug or a missing setting")
     cmd.add_argument("message", nargs="+")
     cmd.add_argument("--kind", choices=sync.FEEDBACK_KINDS, default="other")

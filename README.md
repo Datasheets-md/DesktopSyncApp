@@ -47,7 +47,7 @@ dsmd part add SN74HC00N [--manufacturer TI]
 dsmd part rm SN74HC00N
 dsmd pdf SN74HC00N                    # PDF into .dsmd/cache/
 dsmd open SN74HC00N                   # the part's web page
-dsmd categories                       # catalogue category ids, for settings/mapping.yaml
+dsmd categories                       # catalogue category ids, for mapping files
 dsmd feedback "a setting I need"      # tell the datasheets.md team (--kind bug|suggestion)
 dsmd gui                              # the desktop app (needs datasheets-md-gui)
 dsmd self-update                      # upgrade to the latest release (--check only asks)
@@ -65,7 +65,7 @@ Every command takes `--json`, `--quiet` and `-C <dir>`. Exit codes: `0` ok,
 ```
 .dsmd/                        state, pristine base copies, cache (gitignored)
 dsmd.toml                     what to pull, which library outputs to build
-settings/mapping.yaml         workspace mapping (categories, parameter names, CAD fields) -- editable, admin
+settings/mappings/*.yaml      every workspace mapping (categories, parameter names, CAD fields, active_for) -- editable, admin
 settings/symbol_style.yaml    symbol generation settings and reference designators     -- editable, admin
 parts/<MFR>/<PN>/
   part.yaml                   identity, and `datasheet:` -> its datasheet.md (read-only)

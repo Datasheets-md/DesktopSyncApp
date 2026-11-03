@@ -11,8 +11,8 @@ shell; add `--json` to any command for machine-readable output.
    - `parts/<MFR>/<PN>/parameters.jsonl` -- one parameter row per line.
    - `parts/<MFR>/<PN>/pins.csv` -- one physical pin per line.
    - `parts/<MFR>/<PN>/cad.yaml` -- the part's CAD configuration.
-   - `settings/mapping.yaml`, `settings/symbol_style.yaml` -- the workspace's
-     settings (see below; owner or admin only).
+   - `settings/mappings/<id>-<name>.yaml`, `settings/symbol_style.yaml` -- the
+     workspace's settings (see below; owner or admin only).
 4. `dsmd diff` -- and show the diff to the user before pushing.
 5. `dsmd push -m "<what changed and why>"`.
 6. Exit code 2 from `clone` or `pull` with a `library/ was not built` warning means the parts and
@@ -49,9 +49,20 @@ Both files are YAML, pushed with the parts (settings first, so a category you
 add is there for the parts in the same push). The server validates them like
 the web settings pages and answers `rejected` with the reason.
 
-`settings/mapping.yaml` -- how the workspace names and groups things (it
-drives the web app, comparisons, the API, the MCP server and the CAD exports
-listed in `used_by`):
+`settings/mappings/<id>-<name>.yaml` -- one file per mapping, for how the
+workspace names and groups things. A workspace can have several, each driving
+different outputs, so edit the one that drives the output you are changing:
+- `active_for` (read-only): the outputs that really read this mapping. To see
+  which file drives what, including the KiCad library (`kicad_export`), run
+  `grep -A7 '^active_for' settings/mappings/*`. Check it before editing.
+- `used_by`: the outputs this mapping asks to drive (`web_app`, `comparisons`,
+  `kicad_export`, `concept_hdl_export`, `altium_export`, `rest_api`,
+  `mcp_server`). When several active mappings ask for one output, only one
+  gets it: the workspace default, otherwise the most recently saved. So saving
+  any mapping that shares an output can move that output to it. Read
+  `active_for` after a push.
+- `name`, `description`, `status` (`active`, or `draft`, which drives nothing).
+  Renaming changes the file's name.
 - `custom_categories`: your category names; `category_parents`:
   `{child: parent}` to nest them.
 - `category_map`: `{catalogue category id: your category}`. `dsmd categories`
@@ -62,9 +73,9 @@ listed in `used_by`):
 - `custom_parameters`: `{name: {unit, units?, kind?, shortcut?}}`;
   `custom_units`: `[{symbol, name?}]`.
 - `cad_fields`: `{kicad: [...]}` -- the properties each KiCad symbol gets.
-- `used_by`: which outputs use this mapping (`web_app`, `comparisons`,
-  `kicad_export`, `concept_hdl_export`, `altium_export`, `rest_api`,
-  `mcp_server`).
+
+Mappings are created and deleted in the web app, not with files: a new file in
+`settings/mappings/` is ignored.
 
 `settings/symbol_style.yaml` -- how symbols are generated:
 - `style`: the workspace's overrides of `reference.system_style` (only the

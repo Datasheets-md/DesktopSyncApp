@@ -193,8 +193,7 @@ def merge_yaml(base, local, server):
     return yaml.safe_dump(merged, sort_keys=True, allow_unicode=True, default_flow_style=False), 0
 
 
-MERGERS = {"parameters.jsonl": merge_jsonl, "pins.csv": merge_csv, "cad.yaml": merge_yaml,
-           "settings/mapping.yaml": merge_yaml, "settings/symbol_style.yaml": merge_yaml}
+MERGERS = {"parameters.jsonl": merge_jsonl, "pins.csv": merge_csv, "cad.yaml": merge_yaml}
 
 
 def merge(name, base, local, server):
@@ -203,4 +202,5 @@ def merge(name, base, local, server):
         return server, 0
     if base is not None and local == base:
         return server, 0
-    return MERGERS.get(name, merge_whole)(base or "", local, server)
+    merger = merge_yaml if name.startswith("settings/") else MERGERS.get(name, merge_whole)
+    return merger(base or "", local, server)
