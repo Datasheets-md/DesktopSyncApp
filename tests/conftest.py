@@ -116,8 +116,18 @@ class FakeServer:
             self.pushes.append(body)
             settings = []
             for name, f in (body.get("settings") or {}).items():
+                if f["base_etag"] is None:         # a new mapping: the server names its file
+                    served = f"settings/mappings/2-{name.rsplit('/', 1)[-1]}"
+                    self.settings[served] = f["content"]
+                    settings.append({"path": name, "status": "applied", "errors": [],
+                                     "files": {served: {"etag": etag(f["content"]), "content": f["content"]}}})
+                    continue
                 if etag(self.settings[name]) != f["base_etag"]:
                     settings.append({"path": name, "status": "stale", "errors": [], "files": {}})
+                    continue
+                if f.get("delete"):
+                    del self.settings[name]
+                    settings.append({"path": name, "status": "applied", "errors": [], "files": {}})
                     continue
                 self.settings[name] = f["content"]
                 settings.append({"path": name, "status": "applied", "errors": [],

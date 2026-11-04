@@ -24,6 +24,7 @@ SYNC = "/workspace/sync"
 BATCH_FILES = 100
 BATCH_PARTS = 20
 SETTINGS_DIR = "settings/"     # every file under it is editable; the server lists them
+MAPPINGS_DIR = "settings/mappings"
 EDITABLE = ("parameters.jsonl", "pins.csv", "cad.yaml")
 MARKDOWN = "datasheet.md"      # one per family datasheet folder (datasheets/<manufacturer>/<pdf name>/)
 IMAGES = "images"               # the figures datasheet.md links to, next to it
@@ -365,12 +366,14 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
 
 def _drop_setting(repo, path, report):
     """A settings file the server no longer lists (a mapping renamed or deleted,
-    or the single settings/mapping.yaml of older versions): edits stay, untracked."""
-    unmodified = _unmodified(repo, path)
-    if not unmodified:
-        report["warnings"].append(f"{path} is gone from the server but has local edits; kept, untracked. "
+    or the single settings/mapping.yaml of older versions). Edits move to a
+    .local file: left in place, a mapping file would read as a new mapping."""
+    text = repo.read(repo.working(path))
+    if text is not None and not _unmodified(repo, path):
+        repo.write(repo.working(path + ".local"), text)
+        report["warnings"].append(f"{path} is gone from the server but had local edits; saved as {path}.local. "
                                   f"Redo them in the matching file under {SETTINGS_DIR}")
-    repo.remove(path, working=unmodified)
+    repo.remove(path)
     del repo.state["settings"][path]
 
 
@@ -460,6 +463,14 @@ def _file_state(repo, rel, name):
     return "modified" if name in EDITABLE or name.startswith(SETTINGS_DIR) else "read-only-edited"
 
 
+def _new_mappings(repo):
+    """Mapping files the user added: the server has not seen them, so it has not named them."""
+    tracked = repo.state.get("settings", {})
+    folder = repo.working(MAPPINGS_DIR)
+    found = sorted(f"{MAPPINGS_DIR}/{p.name}" for p in folder.glob("*.yaml")) if folder.is_dir() else []
+    return [rel for rel in found if rel not in tracked]
+
+
 def status(repo):
     parts, tracked = [], set()
     for uuid, entry in sorted(repo.parts().items(), key=lambda kv: kv[1]["path"]):
@@ -479,6 +490,7 @@ def status(repo):
         state = _file_state(repo, rel, rel)
         if state:
             settings.append({"path": rel, "state": state})
+    settings += [{"path": rel, "state": "new"} for rel in _new_mappings(repo)]
     datasheets = []
     for folder in sorted(repo.state.get("datasheets", {})):
         rel = f"{folder}/{MARKDOWN}"
@@ -508,7 +520,7 @@ def status(repo):
 def _selected(repo, target):
     """Tracked file paths matching a part identifier or a path prefix (all when target is None)."""
     paths = [f"{e['path']}/{n}" for e in repo.parts().values() for n in e["files"]]
-    paths += list(repo.state.get("settings", {}))
+    paths += list(repo.state.get("settings", {})) + _new_mappings(repo)
     paths += [f"{folder}/{MARKDOWN}" for folder in repo.state.get("datasheets", {})]
     if not target:
         return paths
@@ -567,8 +579,15 @@ def push(repo, client, message, say=_quiet):
                                     "content": repo.read(repo.working(f["path"]))}
         if files:
             items.append({"uuid": part["uuid"], "files": files})
-    settings = {s["path"]: {"base_etag": repo.state["settings"][s["path"]], "content": repo.read(repo.working(s["path"]))}
-                for s in report["settings"] if s["state"] == "modified"}
+    settings = {}
+    for s in report["settings"]:
+        path, state = s["path"], s["state"]
+        if state == "modified":
+            settings[path] = {"base_etag": repo.state["settings"][path], "content": repo.read(repo.working(path))}
+        elif state == "new":
+            settings[path] = {"base_etag": None, "content": repo.read(repo.working(path))}
+        elif state == "deleted" and path.startswith(MAPPINGS_DIR + "/"):
+            settings[path] = {"base_etag": repo.state["settings"][path], "delete": True}
     result = {"applied": [], "stale": [], "rejected": []}
     if not items and not settings:
         return result
@@ -584,9 +603,9 @@ def push(repo, client, message, say=_quiet):
             result.setdefault(outcome["status"], []).append({"path": path, "errors": outcome.get("errors") or []})
             if outcome["status"] == "applied":
                 served_files = outcome.get("files") or {}
-                if served_files and path not in served_files:    # a renamed mapping's file follows its name
+                if path not in served_files:    # deleted, or the server named it: renamed or new
                     repo.remove(path)
-                    del repo.state["settings"][path]
+                    repo.state["settings"].pop(path, None)
                 for served, file in served_files.items():
                     repo.put(served, file["content"])
                     repo.state["settings"][served] = file["etag"]

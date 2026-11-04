@@ -106,10 +106,62 @@ def test_setting_gone_from_server_is_removed_unless_edited(repo, server):
     repo.write(repo.working(edited), "name: old layout\ncustom_units: []\n")
     del server.settings[clean], server.settings[edited]
     report = sync.pull(repo, server)
-    assert not repo.working(clean).exists()
-    assert "custom_units" in repo.read(repo.working(edited))
+    assert not repo.working(clean).exists() and not repo.working(edited).exists()
+    assert "custom_units" in repo.read(repo.working(edited + ".local"))
     assert edited in report["warnings"][0] and "local edits" in report["warnings"][0]
     assert not ({clean, edited} & set(repo.state["settings"]))
+    assert sync.status(repo)["settings"] == []
+
+
+def test_new_mapping_file_is_pushed_and_takes_the_servers_name(repo, server):
+    rel, served = "settings/mappings/mine.yaml", "settings/mappings/2-mine.yaml"
+    repo.write(repo.working(rel), "name: Mine\n")
+    assert sync.status(repo)["settings"] == [{"path": rel, "state": "new"}]
+    assert "+name: Mine" in sync.diff(repo)
+    assert sync.push(repo, server, "add")["applied"] == [{"path": rel, "errors": []}]
+    assert server.pushes[0]["settings"][rel] == {"base_etag": None, "content": "name: Mine\n"}
+    assert not repo.working(rel).exists() and repo.read(repo.working(served)) == "name: Mine\n"
+    assert served in repo.state["settings"] and rel not in repo.state["settings"]
+    assert sync.status(repo)["clean"]
+
+
+def test_deleting_a_mapping_file_deletes_on_push_and_restore_undoes_it(repo, server):
+    rel = "settings/mappings/9-old.yaml"
+    server.settings[rel] = "name: Old\n"
+    sync.pull(repo, server)
+    repo.working(rel).unlink()
+    assert sync.status(repo)["settings"] == [{"path": rel, "state": "deleted"}]
+    sync.restore(repo, rel)
+    assert sync.status(repo)["clean"]
+    repo.working(rel).unlink()
+    assert sync.push(repo, server, "drop")["applied"] == [{"path": rel, "errors": []}]
+    assert server.pushes[0]["settings"][rel]["delete"] is True and rel not in server.settings
+    assert rel not in repo.state["settings"] and sync.status(repo)["clean"]
+
+
+def test_deleting_the_symbol_style_sends_nothing(repo, server):
+    repo.working("settings/symbol_style.yaml").unlink()
+    sync.push(repo, server, "nothing")
+    assert server.pushes == []
+
+
+def test_rejected_new_mapping_stays_new(repo, server, monkeypatch):
+    rel = "settings/mappings/bad.yaml"
+    repo.write(repo.working(rel), "description: no name\n")
+    monkeypatch.setattr(server, "post", lambda path, body=None, **_: {"parts": [], "settings": [
+        {"path": rel, "status": "rejected", "errors": [{"file": rel, "error": "a new mapping needs a name"}], "files": {}}]})
+    assert sync.push(repo, server, "add")["rejected"][0]["path"] == rel
+    assert repo.working(rel).exists()
+    assert sync.status(repo)["settings"] == [{"path": rel, "state": "new"}]
+
+
+def test_a_kept_edit_of_a_gone_mapping_does_not_read_as_new(repo, server):
+    rel = "settings/mappings/9-old.yaml"
+    server.settings[rel] = "name: Old\n"
+    sync.pull(repo, server)
+    repo.write(repo.working(rel), "name: Old\ncustom_units: []\n")
+    del server.settings[rel]
+    sync.pull(repo, server)
     assert sync.status(repo)["settings"] == []
 
 

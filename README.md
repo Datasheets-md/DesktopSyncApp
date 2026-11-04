@@ -65,7 +65,7 @@ Every command takes `--json`, `--quiet` and `-C <dir>`. Exit codes: `0` ok,
 ```
 .dsmd/                        state, pristine base copies, cache (gitignored)
 dsmd.toml                     what to pull, which library outputs to build
-settings/mappings/*.yaml      every workspace mapping (categories, parameter names, CAD fields, active_for) -- editable, admin
+settings/mappings/*.yaml      every workspace mapping (categories, parameter names, CAD fields, active_for) -- edit, add or delete a file, admin
 settings/symbol_style.yaml    symbol generation settings and reference designators     -- editable, admin
 parts/<MFR>/<PN>/
   part.yaml                   identity, and `datasheet:` -> its datasheet.md (read-only)

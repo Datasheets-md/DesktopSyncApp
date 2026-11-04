@@ -74,8 +74,15 @@ different outputs, so edit the one that drives the output you are changing:
   `custom_units`: `[{symbol, name?}]`.
 - `cad_fields`: `{kicad: [...]}` -- the properties each KiCad symbol gets.
 
-Mappings are created and deleted in the web app, not with files: a new file in
-`settings/mappings/` is ignored.
+To create a mapping, add a YAML file with a `name` to `settings/mappings/`, under
+any file name. Copying an existing file is the easy start. It is a `draft`
+unless the file sets `status`. After the push the server renames the file to
+`<id>-<name>.yaml`.
+
+To delete a mapping, delete its file and push; `dsmd restore <path>` brings it
+back before then. The workspace default cannot be deleted. Whatever a deleted
+mapping drove moves to the next mapping that lists it in `used_by`, or back to
+the catalogue's names, so check its `active_for` first and tell the user.
 
 `settings/symbol_style.yaml` -- how symbols are generated:
 - `style`: the workspace's overrides of `reference.system_style` (only the
