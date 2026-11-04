@@ -1,6 +1,0 @@
-{
-    "api_url": "https://api.datasheets.md",
-    "sync_interval_sec": 300,
-    "exclude_fields": [],
-    "api_token": ""
-}
