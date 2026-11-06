@@ -206,6 +206,8 @@ def cmd_confirm(args, out):
             text += f"\nIn {done['path']} only; dsmd push -m \"...\" sends it."
     else:
         text = "\n".join(f"{i['review']:<10}{i['item']:<20}{i.get('value') or ''}  ({i.get('version') or '-'})"
+                          + "".join(f"\n{'':<30}{s.get('label') or s.get('kind')}: {s['element_id']}"
+                                    for s in i.get("sources") or [])
                           for i in done["items"]) or "This part has no CAD review items (no CAD yet, or run dsmd pull)."
     out.result(done, text)
 

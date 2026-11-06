@@ -348,7 +348,9 @@ def test_incremental_pull_reads_only_changes_and_deletions(tmp_path, server):
 
 def _review_rows(repo):
     rel = f"{PATH}/parameters.jsonl"
-    text = repo.read(repo.working(rel)) + jsonl(row("cad:pin_map", "Pin mapping", "2 symbol pins, 0 pads", section="cad_review"),
+    pin_map = {**row("cad:pin_map", "Pin mapping", "2 symbol pins, 0 pads", section="cad_review"),
+               "sources": [{"element_id": "ff44", "kind": "pinout", "label": "Pinout figure"}]}
+    text = repo.read(repo.working(rel)) + jsonl(pin_map,
                                                 row("cad:symbol", "Symbol", "Generated", section="cad_review"))
     repo.put(rel, text)
     return rel
@@ -378,6 +380,8 @@ def test_cli_confirm(repo, capsys):
     _review_rows(repo)
     assert cli.main(["-C", str(repo.root), "confirm", "SN74HC00N", "symbol"]) == 0
     assert "confirmed cad:symbol" in capsys.readouterr().out.replace("  ", " ").replace("  ", " ")
+    assert cli.main(["-C", str(repo.root), "confirm", "SN74HC00N"]) == 0
+    assert "Pinout figure: ff44" in capsys.readouterr().out
     assert cli.main(["--json", "-C", str(repo.root), "confirm", "SN74HC00N"]) == 0
     items = json.loads(capsys.readouterr().out)["items"]
     assert {i["item"]: i["review"] for i in items} == {"pin_map": "unchecked", "symbol": "confirmed"}

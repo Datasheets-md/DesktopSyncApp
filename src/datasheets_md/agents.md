@@ -9,7 +9,8 @@ shell; add `--json` to any command for machine-readable output.
 2. Find what to change with grep, e.g. `grep -rn '"VOH"' parts/`.
 3. Edit only these files:
    - `parts/<MFR>/<PN>/parameters.jsonl` -- one parameter row per line.
-   - `parts/<MFR>/<PN>/pins.csv` -- one physical pin per line.
+   - `parts/<MFR>/<PN>/pins.csv` -- one physical pin per line; `source` is the
+     element id in `datasheet.md` the pin was read from.
    - `parts/<MFR>/<PN>/cad.yaml` -- the part's CAD configuration.
    - `settings/mappings/<id>-<name>.yaml`, `settings/symbol_style.yaml` -- the
      workspace's settings (see below; owner or admin only).
@@ -34,7 +35,8 @@ shell; add `--json` to any command for machine-readable output.
   `source.element_id` cites; figures are PNGs in `images/` next to it.
   `dsmd pdf <part>` downloads the original PDF.
 - When you correct a value, set `source` to the element you read it from:
-  `"source": {"element_id": "<id>"}`.
+  `"source": {"element_id": "<id>"}` in parameters.jsonl, the bare id in the
+  `source` column of pins.csv.
 - To confirm a row is right, run `dsmd confirm <part> <k>` (or change its
   `review` from `unchecked` to `confirmed`). Unconfirming a parameter row is
   not supported. Every confirmation carries your name and the time.
@@ -60,13 +62,18 @@ top of the CAD data tab:
 | `symbol` | the symbol you place | `cad.yaml` `symbol` |
 
 Only `review` of these lines is yours to change; their `name`, `value` and
-`version` say what the item is now. A part without CAD or a package drawing
+`version` say what the item is now. `sources` lists where to check it, most
+direct first, each `{element_id, kind, label}` (`kind`: `pin_table`,
+`pinout` figure, `package_drawing`, `land_pattern`, `ordering` table,
+`package` information, `row`); `source` repeats the first. Find an element
+with `grep -rn '<element_id>' datasheets/`; a figure is also
+`images/<element_id>.png` next to it. An empty `sources` means the server
+knows no pointer for that item: look it up yourself. A part without CAD or a package drawing
 lists fewer items. To review:
 
 1. `dsmd pull`, then `dsmd confirm <part>` lists the items and their state.
-2. Compare each item with the datasheet (`datasheet.md` next to the part's
-   PDF, or `dsmd pdf <part>`). Look at the figures in `images/` for pinouts,
-   package drawings and land patterns.
+2. Compare each item with the datasheet at the elements its `sources` name
+   (`datasheet.md`, its figures in `images/`, or `dsmd pdf <part>`).
 3. If something is wrong, correct it first, in the file that holds it:
    `pins.csv` for pins, `cad.yaml` for symbol and footprint, the row in
    `parameters.jsonl` for the package type (and `source.element_id` to say
