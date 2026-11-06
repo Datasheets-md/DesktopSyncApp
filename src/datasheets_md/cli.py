@@ -195,6 +195,21 @@ def cmd_part(args, out):
         out.result(done, f"Removed {path}")
 
 
+def cmd_confirm(args, out):
+    repo = Repo.find(args.C or ".")
+    with repo.lock():
+        done = sync.confirm(repo, args.part, args.items, undo=args.undo)
+    if args.items:
+        word = "unchecked" if args.undo else "confirmed"
+        text = "\n".join(f"{word:<10}{key}" for key in done["changed"]) or "Nothing changed."
+        if done["changed"]:
+            text += f"\nIn {done['path']} only; dsmd push -m \"...\" sends it."
+    else:
+        text = "\n".join(f"{i['review']:<10}{i['item']:<20}{i.get('value') or ''}  ({i.get('version') or '-'})"
+                          for i in done["items"]) or "This part has no CAD review items (no CAD yet, or run dsmd pull)."
+    out.result(done, text)
+
+
 def cmd_pdf(args, out):
     repo, client = _repo_client(args)
     path = sync.pdf(repo, client, args.part)
@@ -328,6 +343,12 @@ def parser():
     prm = part_sub.add_parser("rm", parents=[common], help="remove a part from the workspace")
     prm.add_argument("ident", help="part number, uuid or folder")
     prm.add_argument("--yes", "-y", action="store_true", help="do not ask")
+    cmd = add("confirm", cmd_confirm, "confirm review items of a part (CAD review items or parameter rows); "
+                                      "without items, list its CAD review items")
+    cmd.add_argument("part", help="part number, uuid or folder")
+    cmd.add_argument("items", nargs="*", help="package_type, package_dimensions, pin_table, pin_map, footprint, symbol, "
+                                              "or a parameter row's k")
+    cmd.add_argument("--undo", action="store_true", help="set the items back to unchecked")
     add("pdf", cmd_pdf, "download a part's PDF into .dsmd/cache and print its path").add_argument("part")
     add("open", cmd_open, "open a part's web page").add_argument("part")
     add("categories", cmd_categories, "list the catalogue categories (the ids a mapping file's category_map uses)")

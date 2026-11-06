@@ -35,13 +35,56 @@ shell; add `--json` to any command for machine-readable output.
   `dsmd pdf <part>` downloads the original PDF.
 - When you correct a value, set `source` to the element you read it from:
   `"source": {"element_id": "<id>"}`.
-- To confirm a row is right, change its `review` from `unchecked` to
-  `confirmed`. Unconfirming is not supported.
+- To confirm a row is right, run `dsmd confirm <part> <k>` (or change its
+  `review` from `unchecked` to `confirmed`). Unconfirming a parameter row is
+  not supported. Every confirmation carries your name and the time.
 - Never edit `library/` (generated), `part.yaml` or `datasheet.md`
   (read-only); `push` refuses them. `dsmd restore <path>` undoes a local edit.
 - Conflict markers (`<<<<<<< local` / `=======` / `>>>>>>> server`) after a
   pull surround one row (or, in a YAML file, the whole file): keep the right
   side, delete the markers, push.
+
+## Reviewing a part's CAD
+
+The last lines of `parameters.jsonl` (section `cad_review`, `k` = `cad:<item>`)
+are the part's CAD review checklist, the same one the web page shows at the
+top of the CAD data tab:
+
+| item | what you check | against |
+|---|---|---|
+| `package_type` | the part number comes in this package | the ordering / package table in `datasheet.md` and the `Package / Case` row |
+| `package_dimensions` | the body and lead dimensions the footprint is built from | the package drawing |
+| `pin_table` | every pin's number, name and electrical type | the pin table; `pins.csv` |
+| `pin_map` | which pins are on the symbol and which pad each pin is | the pinout figure; `pins.csv` (`on_symbol`), `cad.yaml` (`pad_map`, `pin_map`) |
+| `footprint` | the land pattern | the recommended land pattern; `cad.yaml` `footprint` |
+| `symbol` | the symbol you place | `cad.yaml` `symbol` |
+
+Only `review` of these lines is yours to change; their `name`, `value` and
+`version` say what the item is now. A part without CAD or a package drawing
+lists fewer items. To review:
+
+1. `dsmd pull`, then `dsmd confirm <part>` lists the items and their state.
+2. Compare each item with the datasheet (`datasheet.md` next to the part's
+   PDF, or `dsmd pdf <part>`). Look at the figures in `images/` for pinouts,
+   package drawings and land patterns.
+3. If something is wrong, correct it first, in the file that holds it:
+   `pins.csv` for pins, `cad.yaml` for symbol and footprint, the row in
+   `parameters.jsonl` for the package type (and `source.element_id` to say
+   where you read it). Package dimensions are not in the files yet: when they
+   are wrong, leave `package_dimensions` unchecked and tell the user.
+4. `dsmd confirm <part> pin_table pin_map ...` for each item you checked and
+   found right. Confirming `pin_map` also confirms `pin_table`. Never confirm
+   an item you did not compare. `--undo` sets an item back before the push,
+   and after it takes back your own confirmation.
+5. `dsmd diff`, show it to the user, then `dsmd push -m "CAD review: ..."`.
+   Corrections are applied first, so what you confirm is the corrected data.
+   The confirmations are recorded under your name with the time; the web
+   page shows "Reviewed by <name>" once you have confirmed every item.
+
+A later change to an item's data (a pin renamed, the footprint swapped, a
+dimension corrected) reopens that item: after a pull its line says
+`unchecked` again with a new `version`. `package_dimensions` is refused while
+the drawing misses a dimension the package needs; the push says so.
 
 ## Workspace settings
 

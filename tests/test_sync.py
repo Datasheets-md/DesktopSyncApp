@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from conftest import PART, PATH, SHEET, etag
+from conftest import PART, PATH, SHEET, etag, jsonl, row
 
 from datasheets_md import cli, sync
 from datasheets_md.repo import Repo, RepoError
@@ -344,3 +344,40 @@ def test_incremental_pull_reads_only_changes_and_deletions(tmp_path, server):
     server.delete(PART)
     assert sync.pull(repo, server)["removed_parts"] == 1
     assert repo.parts() == {} and repo.state["cursor"] == "1.1"
+
+
+def _review_rows(repo):
+    rel = f"{PATH}/parameters.jsonl"
+    text = repo.read(repo.working(rel)) + jsonl(row("cad:pin_map", "Pin mapping", "2 symbol pins, 0 pads", section="cad_review"),
+                                                row("cad:symbol", "Symbol", "Generated", section="cad_review"))
+    repo.put(rel, text)
+    return rel
+
+
+def test_confirm_lists_and_flips_only_the_review_word(repo):
+    rel = _review_rows(repo)
+    listed = sync.confirm(repo, "SN74HC00N")
+    assert [i["item"] for i in listed["items"]] == ["pin_map", "symbol"] and not listed["changed"]
+    done = sync.confirm(repo, "SN74HC00N", ["pin_map", "a1"])
+    assert done["changed"] == ["cad:pin_map", "a1"]
+    changed = [line for line in sync.diff(repo).splitlines() if line[:1] in "+-" and line[1:2] == "{"]
+    assert sorted(line.replace("confirmed", "unchecked")[1:] for line in changed if line[0] == "+") == \
+        sorted(line[1:] for line in changed if line[0] == "-")
+    assert sync.confirm(repo, "SN74HC00N", ["pin_map"])["changed"] == []
+    sync.confirm(repo, "SN74HC00N", ["pin_map", "a1"], undo=True)
+    assert sync.diff(repo) == "" and repo.read(repo.working(rel)) == repo.read(repo.base(rel))
+
+
+def test_confirm_names_the_items_it_knows(repo):
+    _review_rows(repo)
+    with pytest.raises(RepoError, match="pin_map, symbol"):
+        sync.confirm(repo, "SN74HC00N", ["footprint"])
+
+
+def test_cli_confirm(repo, capsys):
+    _review_rows(repo)
+    assert cli.main(["-C", str(repo.root), "confirm", "SN74HC00N", "symbol"]) == 0
+    assert "confirmed cad:symbol" in capsys.readouterr().out.replace("  ", " ").replace("  ", " ")
+    assert cli.main(["--json", "-C", str(repo.root), "confirm", "SN74HC00N"]) == 0
+    items = json.loads(capsys.readouterr().out)["items"]
+    assert {i["item"]: i["review"] for i in items} == {"pin_map": "unchecked", "symbol": "confirmed"}

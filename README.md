@@ -51,6 +51,7 @@ dsmd categories                       # catalogue category ids, for mapping file
 dsmd feedback "a setting I need"      # tell the datasheets.md team (--kind bug|suggestion)
 dsmd gui                              # the desktop app (needs datasheets-md-gui)
 dsmd self-update                      # upgrade to the latest release (--check only asks)
+dsmd confirm <part> [item ...]        # confirm CAD review items or rows; push sends them
 dsmd help agents                      # the guide for AI agents
 ```
 

@@ -694,6 +694,58 @@ def feedback(client, message, kind="other"):
                                           "context": {"client": f"dsmd {__version__}"}})
 
 
+REVIEW_SECTION, REVIEW_PREFIX = "cad_review", "cad:"
+
+
+def _line(obj):
+    """A parameters.jsonl line as the server writes it, so a confirm diffs as one word."""
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def confirm(repo, ident, items=(), undo=False):
+    """Mark review items of a part `confirmed` (or `unchecked` with `undo`) in its working
+    parameters.jsonl; `dsmd push` sends them. An item is a CAD review item (`pin_map` or
+    `cad:pin_map`) or a parameter row's `k`. No items: list the part's CAD review items."""
+    uuid = repo.resolve(ident)
+    rel = f"{repo.parts()[uuid]['path']}/parameters.jsonl"
+    text = repo.read(repo.working(rel))
+    if text is None:
+        raise RepoError(f"{rel} is missing; run dsmd restore {rel}")
+    if has_conflict(text):
+        raise RepoError(f"{rel} has conflict markers; resolve them first")
+    lines = text.splitlines()
+    rows = {}
+    for index, raw in enumerate(lines):
+        try:
+            obj = json.loads(raw) if raw.strip() else None
+        except ValueError:
+            raise RepoError(f"{rel}:{index + 1} is not valid JSON; fix it first") from None
+        if isinstance(obj, dict) and obj.get("k"):
+            rows[obj["k"]] = (index, obj)
+    review = [obj for _, obj in rows.values() if obj.get("section") == REVIEW_SECTION]
+    if not items:
+        return {"path": rel, "items": [{"item": obj["k"][len(REVIEW_PREFIX):], **obj} for obj in review], "changed": []}
+    want = "unchecked" if undo else "confirmed"
+    changed = []
+    for item in items:
+        key = item if item in rows else REVIEW_PREFIX + item
+        if key not in rows:
+            names = ", ".join(obj["k"][len(REVIEW_PREFIX):] for obj in review) or "none (no CAD, or run dsmd pull)"
+            raise RepoError(f"{rel} has no item {item!r}; CAD review items: {names}")
+        index, obj = rows[key]
+        if obj.get("review") == "edited":
+            if undo:
+                raise RepoError(f"{key} was edited, which confirms it; it cannot be unchecked")
+            continue
+        if obj.get("review") != want:
+            obj["review"] = want
+            lines[index] = _line(obj)
+            changed.append(key)
+    if changed:
+        repo.write(repo.working(rel), "\n".join(lines) + "\n")
+    return {"path": rel, "items": [{"item": obj["k"][len(REVIEW_PREFIX):], **obj} for obj in review], "changed": changed}
+
+
 def web_url(repo, ident):
     uuid = repo.resolve(ident)
     text = repo.read(repo.base(f"{repo.parts()[uuid]['path']}/part.yaml")) or "{}"
@@ -709,4 +761,4 @@ def open_part(repo, ident):
 
 
 __all__ = ["ApiError", "RepoError", "PushRefused", "clone", "fetch", "pull", "status", "diff", "restore",
-           "push", "log", "part_add", "part_rm", "pdf", "open_part", "build_library", "resolve_workspace", "feedback", "categories"]
+           "push", "log", "part_add", "part_rm", "confirm", "pdf", "open_part", "build_library", "resolve_workspace", "feedback", "categories"]
