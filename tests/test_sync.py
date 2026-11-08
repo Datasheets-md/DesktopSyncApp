@@ -18,8 +18,8 @@ def test_clone_writes_working_base_state(repo, server):
         assert repo.parts()[PART]["files"][name] == etag(text)
     assert repo.read(repo.working("settings/mappings/1-default.yaml")) == "name: default\n"
     assert (repo.root / ".gitignore").read_text() == ".dsmd/\n"
-    assert repo.config() == {"markdown": True, "pdf": False, "kicad": True, "sqlite": True}
-    assert not repo.working(f"{SHEET}/sn74hc00.pdf").exists()
+    assert repo.config() == {"markdown": True, "pdf": True, "kicad": True, "sqlite": True}
+    assert repo.working(f"{SHEET}/sn74hc00.pdf").read_bytes() == b"%PDF-1"
     assert (repo.root / "library" / "datasheets.sqlite").exists()
     assert sync.status(repo)["clean"]
 
@@ -388,9 +388,7 @@ def test_cli_confirm(repo, capsys):
     assert {i["item"]: i["review"] for i in items} == {"pin_map": "unchecked", "symbol": "confirmed"}
 
 
-def test_pdf_lives_in_the_family_folder_while_asked_for(repo, server):
-    repo.set_config(pdf=True)
-    assert repo.config()["pdf"] and repo.config()["markdown"]
+def test_pdf_lives_in_the_family_folder_unless_turned_off(repo, server):
     report = sync.pull(repo, server)
     target = repo.working(f"{SHEET}/sn74hc00.pdf")
     assert report["pdfs"] == 1 and target.read_bytes() == b"%PDF-1"
@@ -401,6 +399,7 @@ def test_pdf_lives_in_the_family_folder_while_asked_for(repo, server):
     sync.pull(repo, server)
     assert not target.exists() and repo.working(f"{SHEET}/sn74hc00-rev2.pdf").read_bytes() == b"%PDF-2"
     repo.set_config(pdf=False)
+    assert "pdf = false" in (repo.root / "dsmd.toml").read_text()
     assert sync.pull(repo, server)["pdfs"] == 0
     assert not repo.working(f"{SHEET}/sn74hc00-rev2.pdf").exists()
     assert repo.working(f"{SHEET}/datasheet.md").exists()

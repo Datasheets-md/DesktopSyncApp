@@ -3,7 +3,7 @@
     .dsmd/state.json   server, workspace, renderer, per-part paths and file etags
     .dsmd/base/        the pristine copy of every synced file (what status/diff/merge compare to)
     .dsmd/incoming/    what `dsmd fetch` downloaded and `dsmd pull` has not merged yet
-    .dsmd/cache/       PDFs (`dsmd pdf` while dsmd.toml does not pull them)
+    .dsmd/cache/       PDFs (`dsmd pdf` when dsmd.toml has pdf = false)
     dsmd.toml          what to pull and which library outputs to build
 """
 import json
@@ -26,8 +26,8 @@ DEFAULT_CONFIG = """# dsmd working-copy settings
 # Pull each family's digitised datasheet as parts/<family>_<manufacturer>/datasheet.md
 # (read-only; each part's part.yaml points at its one).
 markdown = true
-# Also keep each family's original PDF in its folder (parts/<family>_<manufacturer>/<name>.pdf).
-pdf = false
+# Keep each family's original PDF in its folder (parts/<family>_<manufacturer>/<name>.pdf).
+pdf = true
 
 [library]
 # Build library/ (KiCad symbols, footprints, database library) on pull.
@@ -102,7 +102,7 @@ class Repo:
         except (OSError, tomllib.TOMLDecodeError):
             data = {}
         pull, library = data.get("pull", {}), data.get("library", {})
-        return {"markdown": bool(pull.get("markdown", True)), "pdf": bool(pull.get("pdf", False)),
+        return {"markdown": bool(pull.get("markdown", True)), "pdf": bool(pull.get("pdf", True)),
                 "kicad": bool(library.get("kicad", True)), "sqlite": bool(library.get("sqlite", True))}
 
     def set_config(self, **values):

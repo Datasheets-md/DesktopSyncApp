@@ -71,7 +71,7 @@ settings/symbol_style.yaml    symbol generation settings and reference designato
 parts/<family>_<MFR>/         one folder per family, named as the parts browser names it
   datasheet.md                digitised datasheet with its element ids (read-only)
   images/                     the figures datasheet.md links to (read-only)
-  <PDF name>.pdf              the original PDF, when dsmd.toml has `pdf = true` (read-only)
+  <PDF name>.pdf              the original PDF (read-only; `pdf = false` in dsmd.toml leaves it out)
   <PN>/
     part.yaml                 identity, and `datasheet:` -> its datasheet.md (read-only)
     parameters.jsonl          unified parameters, one row per line  -- editable

@@ -14,8 +14,8 @@ shell; add `--json` to any command for machine-readable output.
    - `parts/<family>/<PN>/cad.yaml` -- the part's CAD configuration.
 
    `parts/<family>/` is one folder per family (`<family name>_<manufacturer>`),
-   holding its parts' folders and the family's `datasheet.md`, `images/` and,
-   with `pdf = true` in `dsmd.toml`, its original PDF.
+   holding its parts' folders and the family's `datasheet.md`, `images/` and
+   original PDF (unless `dsmd.toml` sets `pdf = false`).
    - `settings/mappings/<id>-<name>.yaml`, `settings/symbol_style.yaml` -- the
      workspace's settings (see below; owner or admin only).
 4. `dsmd diff` -- and show the diff to the user before pushing.
@@ -38,7 +38,7 @@ shell; add `--json` to any command for machine-readable output.
   `{{figure:<id> ...}}` markers carry the element ids that a row's
   `source.element_id` cites; figures are PNGs in `images/` next to it.
   `dsmd pdf <part>` prints the path of the original PDF (the family folder's
-  copy with `pdf = true`, else a download into `.dsmd/cache/`).
+  copy, or a download into `.dsmd/cache/` when `pdf = false`).
 - When you correct a value, set `source` to the element you read it from:
   `"source": {"element_id": "<id>"}` in parameters.jsonl, the bare id in the
   `source` column of pins.csv.
