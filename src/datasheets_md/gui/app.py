@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import open_log
-from .. import APP_NAME, __version__, auth, sync, user_dir
+from .. import APP_NAME, __version__, auth, sync, update, user_dir
 from ..http import ApiError, Client
 from ..repo import Repo, RepoError
 
@@ -101,6 +101,17 @@ class Window(QWidget):
         self.busy_label = QLabel()
         self.timer = QTimer(self, interval=1000, timeout=self.tick)
         self.started, self.last_line = 0.0, ""
+        # The once-a-day check the CLI prints after every command, as a bar over the window.
+        self.update_label = QLabel()
+        self.update_label.setWordWrap(True)
+        self.update_button = QPushButton("Update now")
+        self.update_bar = QWidget()
+        bar = QHBoxLayout(self.update_bar)
+        bar.setContentsMargins(0, 0, 0, 0)
+        bar.addWidget(self.update_label, 1)
+        bar.addWidget(self.update_button)
+        self.update_bar.hide()
+        self.checker, self.latest, self.updated_to = None, None, None
 
         form = QFormLayout()
         form.addRow("Server", self.server)
@@ -121,6 +132,7 @@ class Window(QWidget):
         actions.addWidget(self.pull_button)
         actions.addWidget(self.push_button)
         layout = QVBoxLayout(self)
+        layout.addWidget(self.update_bar)
         layout.addLayout(form)
         layout.addLayout(actions)
         busy = QHBoxLayout()
@@ -138,6 +150,7 @@ class Window(QWidget):
         self.open_button.clicked.connect(self.do_open)
         self.pull_button.clicked.connect(self.do_pull)
         self.push_button.clicked.connect(self.do_push)
+        self.update_button.clicked.connect(self.do_update)
         for key, box in self.toggles.items():
             box.toggled.connect(lambda checked, key=key: self.repo and self.repo.set_config(**{key: checked}))
 
@@ -177,7 +190,7 @@ class Window(QWidget):
         self.worker.start()
 
     def set_busy(self, busy):
-        for w in (self.sign_in, self.sign_out, self.open_button, self.pull_button, self.push_button):
+        for w in (self.sign_in, self.sign_out, self.open_button, self.pull_button, self.push_button, self.update_button):
             w.setEnabled(not busy)
         self.progress.setVisible(busy)
         self.busy_label.setVisible(busy)
@@ -203,6 +216,44 @@ class Window(QWidget):
         blocked = "conflicted" in states or "read-only-edited" in states
         self.push_button.setEnabled(bool(modified) and not blocked)
         self.show_status(report)
+        self.check_update()
+
+    def check_update(self):
+        """Ask (at most once a day, cached with the CLI's check) whether a newer release exists;
+        runs after every job, in its own thread, so it never holds up a button."""
+        if self.checker and self.checker.isRunning():
+            return
+        self.checker = Worker(lambda say: update.available())
+        self.checker.done.connect(self.show_update)
+        self.checker.start()
+
+    def show_update(self, latest):
+        self.latest = latest
+        if not latest or latest == self.updated_to:     # installed; this process is the old version still
+            self.update_bar.hide()
+            return
+        if FROZEN:      # a standalone app: pip cannot replace it
+            self.update_label.setText(f"{APP_NAME} {latest} is available (you have {__version__}). "
+                                      "Install it the way you installed this app.")
+        else:
+            self.update_label.setText(f"dsmd {latest} is available (you have {__version__}). "
+                                      "Update now, or run: dsmd update")
+        self.update_button.setVisible(not FROZEN)
+        self.update_bar.show()
+
+    def do_update(self):
+        latest = self.latest
+
+        def done(result):
+            if result.get("deferred"):
+                self.say(f"The update to {latest} continues in a new window; start {APP_NAME} again when it is done.")
+            else:
+                self.say(f"Updated to dsmd {latest}")
+                QMessageBox.information(self, APP_NAME, f"Updated to {latest}. Restart {APP_NAME} to use it.")
+            self.updated_to = latest
+            self.update_bar.hide()
+            self.update_buttons()
+        self.run(lambda say: update.update_to(latest, say), done)
 
     def show_status(self, report):
         self.status_tree.clear()

@@ -1,7 +1,7 @@
 """datasheets-md: the `dsmd` CLI and the dBsync GUI on one sync engine."""
 from pathlib import Path
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 APP_NAME = "dBsync"
 
 

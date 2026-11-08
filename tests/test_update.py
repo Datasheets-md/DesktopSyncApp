@@ -68,6 +68,17 @@ def test_notice_asks_once_a_day_and_survives_being_offline(index, monkeypatch, t
     assert json.loads((tmp_path / "check.json").read_text())["latest"] is None
 
 
+def test_every_command_ends_with_the_notice_also_for_agents(monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(update, "available", lambda: "9.9.9")
+    assert cli.main(["--json", "-C", str(tmp_path), "status"]) == cli.EXIT_ERROR     # not a working copy
+    err = capsys.readouterr().err
+    assert err.rstrip().endswith("run: dsmd update") and "9.9.9 is available" in err
+    assert cli.main(["--json", "help", "agents"]) == 0
+    out = capsys.readouterr()
+    assert json.loads(out.out)["agents"] and "dsmd update" in out.err             # stdout stays one document
+    assert cli.main(["-q", "help", "agents"]) == 0 and "dsmd update" not in capsys.readouterr().err
+
+
 def test_notice_is_off_in_ci(index, monkeypatch):
     monkeypatch.setenv("CI", "true")
     assert update.notice() is None and not index
@@ -107,16 +118,16 @@ def test_an_os_managed_python_is_refused(prefix, monkeypatch, tmp_path):
     assert argv is None and "pipx install" in why_not
 
 
-def test_self_update_runs_the_upgrade(monkeypatch, capsys):
+def test_update_runs_the_upgrade(monkeypatch, capsys):
     monkeypatch.setattr(update, "__version__", "2.0.0")
     monkeypatch.setattr(update, "latest_version", lambda timeout: "2.1.0")
     monkeypatch.setattr(update, "upgrade_command", lambda v: (["pip", "install", f"x=={v}"], None))
     ran = []
     monkeypatch.setattr(update, "run", lambda argv: ran.append(argv) or 0)
     monkeypatch.setattr(update, "installed_version", lambda: "2.1.0")
-    assert cli.main(["self-update", "--check", "--json"]) == 0 and not ran
+    assert cli.main(["update", "--check", "--json"]) == 0 and not ran
     assert json.loads(capsys.readouterr().out)["latest"] == "2.1.0"
-    assert cli.main(["self-update", "--json"]) == 0
+    assert cli.main(["self-update", "--json"]) == 0            # the name before 2.4.2 still works
     assert ran == [["pip", "install", "x==2.1.0"]]
     assert json.loads(capsys.readouterr().out)["updated"] is True
 
@@ -127,15 +138,15 @@ def test_an_upgrade_that_changed_nothing_is_an_error(monkeypatch, capsys):
     monkeypatch.setattr(update, "upgrade_command", lambda v: (["uv", "tool", "upgrade", "x"], None))
     monkeypatch.setattr(update, "run", lambda argv: 0)      # "Nothing to upgrade", exit 0
     monkeypatch.setattr(update, "installed_version", lambda: "2.0.0")
-    assert cli.main(["self-update"]) == cli.EXIT_ERROR
+    assert cli.main(["update"]) == cli.EXIT_ERROR
     assert "still 2.0.0" in capsys.readouterr().err
 
 
-def test_self_update_refusal_is_an_error(monkeypatch):
+def test_update_refusal_is_an_error(monkeypatch):
     monkeypatch.setattr(update, "__version__", "2.0.0")
     monkeypatch.setattr(update, "latest_version", lambda timeout: "2.1.0")
     monkeypatch.setattr(update, "upgrade_command", lambda v: (None, "managed by the OS"))
-    assert cli.main(["self-update", "-q"]) == cli.EXIT_ERROR
+    assert cli.main(["update", "-q"]) == cli.EXIT_ERROR
 
 
 def test_server_426_says_how_to_update():

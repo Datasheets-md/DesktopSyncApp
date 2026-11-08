@@ -34,7 +34,7 @@ def _describe(resp):
     elif resp.status_code == 403 and code == "api_key_not_allowed":
         message = "this API key may not call this endpoint; sign in with dsmd login instead"
     elif resp.status_code == 426:
-        message = message or "this server needs a newer dsmd; run dsmd self-update"
+        message = message or "this server needs a newer dsmd; run dsmd update"
     elif resp.status_code == 404:
         message = message or "not found"
     return ApiError(f"HTTP {resp.status_code}: {message or code or resp.reason}", resp.status_code, code)

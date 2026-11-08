@@ -1,11 +1,12 @@
-"""Newer releases on PyPI: the once-a-day notice and `dsmd self-update`.
+"""Newer releases on PyPI: the once-a-day check behind the notice (after every CLI command, and
+the banner in the desktop app) and `dsmd update` (`dsmd self-update` before 2.4.2).
 
 The notice asks the index at most once a day (cached in the user cache dir),
 gives up after two seconds and never fails a command. DSMD_NO_UPDATE_CHECK=1
 or CI=... turns it off; DSMD_UPDATE_INDEX points both at another index
 (https://test.pypi.org for pre-release testing).
 
-self-update upgrades the install it runs from, the way it was made: pipx and
+`update` upgrades the install it runs from, the way it was made: pipx and
 uv tool environments through their own tool (which keeps the original
 --pre / index options), a venv or a user install through its own pip. A
 Python the OS manages (PEP 668) is refused with the command to use instead.
@@ -14,6 +15,7 @@ import importlib
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import site
 import subprocess
@@ -67,8 +69,8 @@ def _cache_file():
     return user_dir() / "update-check.json"
 
 
-def notice():
-    """The 'newer version' line, or None. A failed check is cached too, so an
+def available():
+    """The newer release, or None. A failed check is cached too, so an
     offline machine pays the two-second timeout once a day, not every command."""
     if os.environ.get("DSMD_NO_UPDATE_CHECK") or os.environ.get("CI"):
         return None
@@ -89,7 +91,13 @@ def notice():
         except OSError:
             pass
     latest = cached.get("latest")
-    return f"dsmd {latest} is available (you have {__version__}); run: dsmd self-update" if newer(latest) else None
+    return latest if newer(latest) else None
+
+
+def notice():
+    """The 'newer version' line, or None."""
+    latest = available()
+    return f"dsmd {latest} is available (you have {__version__}); run: dsmd update" if latest else None
 
 
 def _installed_package():
@@ -129,6 +137,30 @@ def upgrade_command(version):
     if not in_venv and Path(__file__).resolve().is_relative_to(Path(site.getusersitepackages()).resolve()):
         argv.append("--user")
     return argv, None
+
+
+def update_to(latest, say):
+    """Upgrade this install to `latest`, for `dsmd update` and the app's Update button.
+    Returns {"updated": True} or {"deferred": True} (Windows finishes in a new console once
+    this process exits); raises UpdateError with what to do instead."""
+    argv, why_not = upgrade_command(latest)
+    if argv is None:
+        raise UpdateError(why_not)
+    say(f"Updating dsmd {__version__} -> {latest}: {shlex.join(argv)}")
+    code = run(argv)
+    if code:
+        raise UpdateError(f"the update failed (exit {code}); the command above shows why")
+    if code is None:
+        return {"deferred": True}
+    installed = installed_version()
+    if installed != latest:                 # pipx and uv exit 0 when they find nothing to do
+        raise UpdateError(f"dsmd is still {installed} after the update, not {latest}; it was probably installed "
+                          "without --pre or from another index, so reinstall it the way you installed it")
+    return {"updated": True}
+
+
+class UpdateError(Exception):
+    pass
 
 
 def run(argv):

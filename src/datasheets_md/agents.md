@@ -151,6 +151,11 @@ the catalogue's names, so check its `active_for` first and tell the user.
 - `reference_designators`: `{category: designator}`.
 - `version` and `reference` are for reading only.
 
+## Updates
+
+When a command ends with `dsmd <version> is available ... run: dsmd update`
+(on stderr), tell the user, and run `dsmd update` when they agree.
+
 ## When something is missing
 
 If a setting, parameter, category or command you need does not exist, or the

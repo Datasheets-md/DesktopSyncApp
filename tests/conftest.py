@@ -9,6 +9,12 @@ import pytest
 from datasheets_md import sync
 from datasheets_md.http import ApiError
 
+@pytest.fixture(autouse=True)
+def no_update_check(monkeypatch):
+    """Every command now ends with the update notice; tests never ask PyPI (the notice tests opt in)."""
+    monkeypatch.setenv("DSMD_NO_UPDATE_CHECK", "1")
+
+
 PART = "11111111-1111-1111-1111-111111111111"
 SHEET = "parts/SN74HC00x_TI"         # the family folder: datasheet.md, images/, the PDF, the part folders
 PATH = f"{SHEET}/SN74HC00N"
