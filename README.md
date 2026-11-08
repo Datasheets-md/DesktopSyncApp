@@ -68,18 +68,24 @@ Every command takes `--json`, `--quiet` and `-C <dir>`. Exit codes: `0` ok,
 dsmd.toml                     what to pull, which library outputs to build
 settings/mappings/*.yaml      every workspace mapping (categories, parameter names, CAD fields, active_for) -- edit, add or delete a file, admin
 settings/symbol_style.yaml    symbol generation settings and reference designators     -- editable, admin
-parts/<MFR>/<PN>/
-  part.yaml                   identity, and `datasheet:` -> its datasheet.md (read-only)
-  parameters.jsonl            unified parameters, one row per line  -- editable
-  pins.csv                    physical pins, one per line           -- editable
-  cad.yaml                    CAD configuration                     -- editable
-datasheets/<MFR>/<PDF name>/  one per family, shared by its parts
+parts/<family>_<MFR>/         one folder per family, named as the parts browser names it
   datasheet.md                digitised datasheet with its element ids (read-only)
   images/                     the figures datasheet.md links to (read-only)
+  <PDF name>.pdf              the original PDF, when dsmd.toml has `pdf = true` (read-only)
+  <PN>/
+    part.yaml                 identity, and `datasheet:` -> its datasheet.md (read-only)
+    parameters.jsonl          unified parameters, one row per line  -- editable
+    pins.csv                  physical pins, one per line           -- editable
+    cad.yaml                  CAD configuration                     -- editable
 library/                      generated KiCad library (rebuilt on pull)
   datasheets.sqlite, datasheets.kicad_dbl, datasheets.kicad_sym,
   datasheets.pretty/, sym-lib-table, fp-lib-table
 ```
+
+A family's folder name follows its members (`STM32G031x6_STMicroelectronics`
+for STM32G031F6P6 and its siblings), so adding or removing a sibling can rename
+it; `pull` moves the folders. Working copies made before 2.4.1 move to this
+layout on their next pull.
 
 How it differs from git: one remote, no branches, no staging or local commits.
 `push` is applied atomically per part; the server may normalise what you

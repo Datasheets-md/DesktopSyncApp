@@ -86,7 +86,8 @@ class Window(QWidget):
         browse = QPushButton("Browse...")
         self.open_button = QPushButton("Clone / Open")
         self.toggles = {key: QCheckBox(text) for key, text in
-                        (("markdown", "Markdown datasheets"), ("kicad", "KiCad library"), ("sqlite", "SQLite database"))}
+                        (("markdown", "Markdown datasheets"), ("pdf", "PDF datasheets"), ("kicad", "KiCad library"),
+                         ("sqlite", "SQLite database"))}
         self.pull_button = QPushButton("Pull")
         self.push_button = QPushButton("Push...")
         self.status_tree = QTreeWidget()

@@ -351,7 +351,8 @@ def parser():
     cmd.add_argument("items", nargs="*", help="package_type, package_dimensions, pin_table, pin_map, footprint, symbol, "
                                               "or a parameter row's k")
     cmd.add_argument("--undo", action="store_true", help="set the items back to unchecked")
-    add("pdf", cmd_pdf, "download a part's PDF into .dsmd/cache and print its path").add_argument("part")
+    add("pdf", cmd_pdf, "print the path of a part's PDF: its family folder's copy (pdf = true in dsmd.toml), "
+                        "else a download into .dsmd/cache").add_argument("part")
     add("open", cmd_open, "open a part's web page").add_argument("part")
     add("categories", cmd_categories, "list the catalogue categories (the ids a mapping file's category_map uses)")
     cmd = add("feedback", cmd_feedback, "tell the datasheets.md team about a bug or a missing setting")

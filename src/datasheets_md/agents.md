@@ -8,10 +8,14 @@ shell; add `--json` to any command for machine-readable output.
 1. `dsmd pull` -- bring the working copy up to date.
 2. Find what to change with grep, e.g. `grep -rn '"VOH"' parts/`.
 3. Edit only these files:
-   - `parts/<MFR>/<PN>/parameters.jsonl` -- one parameter row per line.
-   - `parts/<MFR>/<PN>/pins.csv` -- one physical pin per line; `source` is the
+   - `parts/<family>/<PN>/parameters.jsonl` -- one parameter row per line.
+   - `parts/<family>/<PN>/pins.csv` -- one physical pin per line; `source` is the
      element id in `datasheet.md` the pin was read from.
-   - `parts/<MFR>/<PN>/cad.yaml` -- the part's CAD configuration.
+   - `parts/<family>/<PN>/cad.yaml` -- the part's CAD configuration.
+
+   `parts/<family>/` is one folder per family (`<family name>_<manufacturer>`),
+   holding its parts' folders and the family's `datasheet.md`, `images/` and,
+   with `pdf = true` in `dsmd.toml`, its original PDF.
    - `settings/mappings/<id>-<name>.yaml`, `settings/symbol_style.yaml` -- the
      workspace's settings (see below; owner or admin only).
 4. `dsmd diff` -- and show the diff to the user before pushing.
@@ -27,13 +31,14 @@ shell; add `--json` to any command for machine-readable output.
 - Keep `k` (parameters.jsonl) and `id` (pins.csv) unchanged on rows you edit;
   they are how the server knows which row you mean. A new row has no `k`; a
   new pin has an empty `id`.
-- A part's digitised PDF is the `datasheet.md` that `datasheet:` in its
-  `part.yaml` points at (`datasheets/<manufacturer>/<pdf name>/`, one per
-  family, shared by every part of it; null until the PDF is digitised). Its
+- A part's digitised PDF is the `datasheet.md` in its family folder, one
+  level above the part's own folder (`datasheet:` in `part.yaml` points at it;
+  null until the PDF is digitised), shared by every part of the family. Its
   `{{para:<id> ...}}`, `{{table:<id> ...}}`, `{{row:<id> ...}}` and
   `{{figure:<id> ...}}` markers carry the element ids that a row's
   `source.element_id` cites; figures are PNGs in `images/` next to it.
-  `dsmd pdf <part>` downloads the original PDF.
+  `dsmd pdf <part>` prints the path of the original PDF (the family folder's
+  copy with `pdf = true`, else a download into `.dsmd/cache/`).
 - When you correct a value, set `source` to the element you read it from:
   `"source": {"element_id": "<id>"}` in parameters.jsonl, the bare id in the
   `source` column of pins.csv.
@@ -66,7 +71,7 @@ Only `review` of these lines is yours to change; their `name`, `value` and
 direct first, each `{element_id, kind, label}` (`kind`: `pin_table`,
 `pinout` figure, `package_drawing`, `land_pattern`, `ordering` table,
 `package` information, `row`); `source` repeats the first. Find an element
-with `grep -rn '<element_id>' datasheets/`; a figure is also
+with `grep -n '<element_id>' parts/<family>/datasheet.md`; a figure is also
 `images/<element_id>.png` next to it. An empty `sources` means the server
 knows no pointer for that item: look it up yourself. A part without CAD or a package drawing
 lists fewer items. To review:

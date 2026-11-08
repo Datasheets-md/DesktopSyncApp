@@ -3,11 +3,12 @@
     .dsmd/state.json   server, workspace, renderer, per-part paths and file etags
     .dsmd/base/        the pristine copy of every synced file (what status/diff/merge compare to)
     .dsmd/incoming/    what `dsmd fetch` downloaded and `dsmd pull` has not merged yet
-    .dsmd/cache/       PDFs (`dsmd pdf`)
+    .dsmd/cache/       PDFs (`dsmd pdf` while dsmd.toml does not pull them)
     dsmd.toml          what to pull and which library outputs to build
 """
 import json
 import os
+import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
@@ -22,9 +23,11 @@ STATE = "state.json"
 CONFIG = "dsmd.toml"
 DEFAULT_CONFIG = """# dsmd working-copy settings
 [pull]
-# Pull each family's digitised datasheet as datasheets/<manufacturer>/<pdf name>/datasheet.md
+# Pull each family's digitised datasheet as parts/<family>_<manufacturer>/datasheet.md
 # (read-only; each part's part.yaml points at its one).
 markdown = true
+# Also keep each family's original PDF in its folder (parts/<family>_<manufacturer>/<name>.pdf).
+pdf = false
 
 [library]
 # Build library/ (KiCad symbols, footprints, database library) on pull.
@@ -99,14 +102,15 @@ class Repo:
         except (OSError, tomllib.TOMLDecodeError):
             data = {}
         pull, library = data.get("pull", {}), data.get("library", {})
-        return {"markdown": bool(pull.get("markdown", True)),
+        return {"markdown": bool(pull.get("markdown", True)), "pdf": bool(pull.get("pdf", False)),
                 "kicad": bool(library.get("kicad", True)), "sqlite": bool(library.get("sqlite", True))}
 
     def set_config(self, **values):
         current = {**self.config(), **values}
         text = DEFAULT_CONFIG
-        for key in ("markdown", "kicad", "sqlite"):
-            text = text.replace(f"{key} = true", f"{key} = {'true' if current[key] else 'false'}")
+        for key in ("markdown", "pdf", "kicad", "sqlite"):
+            text = re.sub(rf"^{key} = (true|false)$", f"{key} = {'true' if current[key] else 'false'}", text,
+                          flags=re.MULTILINE)
         (self.root / CONFIG).write_text(text)
 
     @contextmanager

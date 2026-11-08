@@ -121,6 +121,32 @@ def _sheets(repo):
     return repo.state.setdefault("datasheets", {})
 
 
+def _sync_pdfs(repo, client, manifest, say=_quiet):
+    """Keep each family's PDF in its folder while dsmd.toml says `pdf = true`, else remove the
+    ones it kept. The PDFs are read-only copies, never merged. Returns how many it holds."""
+    listed = (manifest.get("pdfs") or {}) if repo.config()["pdf"] else {}
+    have = repo.state.setdefault("pdfs", {})
+    for folder in [f for f, kept in have.items() if listed.get(f, {}).get("name") != kept["name"]]:
+        repo.working(f"{folder}/{have.pop(folder)['name']}").unlink(missing_ok=True)
+    todo = {f: pdf for f, pdf in listed.items() if have.get(f, {}).get("etag") != pdf["etag"]}
+    for done, (folder, pdf) in enumerate(todo.items(), 1):
+        try:
+            resp = client.get(f"/workspace/components/{pdf['part']}/download-pdf/", raw=True)
+        except ApiError as exc:
+            if exc.status == 404:
+                continue
+            raise
+        target = repo.working(f"{folder}/{pdf['name']}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(resp.content)
+        have[folder] = {"name": pdf["name"], "etag": pdf["etag"]}
+        if len(todo) <= 20 or done % 10 == 0 or done == len(todo):
+            say(f"  PDFs {done}/{len(todo)}")
+            repo.save()
+    repo.save()
+    return len(have)
+
+
 # ----- clone ---------------------------------------------------------------------------
 
 def resolve_workspace(client, ident):
@@ -200,6 +226,7 @@ def _clone_files(repo, client, manifest, say):
         if done % 10 == 0:
             repo.save()
     repo.save()
+    _sync_pdfs(repo, client, manifest, say)
     files = sum(recorded(uuid, name) is not None for uuid, name, _ in wanted.values())
     return files, sum(folder in have for folder in listed)
 
@@ -344,6 +371,7 @@ def pull(repo, client, *, rebuild_library=False, say=_quiet):
     for path in dropped:
         _drop_setting(repo, path, report)
     _pull_datasheets(repo, _datasheets(repo, manifest), saved.get("datasheets") or {}, report)
+    report["pdfs"] = _sync_pdfs(repo, client, manifest, say)
     for uuid in _gone(manifest, parts):
         entry = parts.pop(uuid)
         dirty = [n for n in entry["files"] if not _unmodified(repo, f"{entry['path']}/{n}")]
@@ -502,9 +530,10 @@ def status(repo):
     untracked = []
     parts_dir = repo.working("parts")
     if parts_dir.is_dir():
-        for manufacturer in sorted(p for p in parts_dir.iterdir() if p.is_dir()):
-            for folder in sorted(p for p in manufacturer.iterdir() if p.is_dir()):
-                rel = f"parts/{manufacturer.name}/{folder.name}"
+        # parts/<family>/<part>; the family folder's own images/ holds its datasheet's figures
+        for family in sorted(p for p in parts_dir.iterdir() if p.is_dir()):
+            for folder in sorted(p for p in family.iterdir() if p.is_dir() and p.name != IMAGES):
+                rel = f"parts/{family.name}/{folder.name}"
                 if rel not in tracked:
                     untracked.append(rel)
     generated = [f"{LIBRARY_DIR}/{rel}" for rel in library.edited(str(repo.working(LIBRARY_DIR)), repo.state.get("library"))]
@@ -672,6 +701,10 @@ def part_rm(repo, client, ident, say=_quiet):
 
 def pdf(repo, client, ident):
     uuid = repo.resolve(ident)
+    family = repo.parts()[uuid]["path"].rsplit("/", 1)[0]
+    kept = repo.state.get("pdfs", {}).get(family)
+    if kept and repo.working(f"{family}/{kept['name']}").exists():
+        return str(repo.working(f"{family}/{kept['name']}"))
     resp = client.get(f"/workspace/components/{uuid}/download-pdf/", raw=True)
     name = repo.parts()[uuid]["path"].rsplit("/", 1)[-1]
     target = repo.dot / "cache" / f"{name}.pdf"

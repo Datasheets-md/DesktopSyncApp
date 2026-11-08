@@ -18,7 +18,8 @@ def test_clone_writes_working_base_state(repo, server):
         assert repo.parts()[PART]["files"][name] == etag(text)
     assert repo.read(repo.working("settings/mappings/1-default.yaml")) == "name: default\n"
     assert (repo.root / ".gitignore").read_text() == ".dsmd/\n"
-    assert repo.config() == {"markdown": True, "kicad": True, "sqlite": True}
+    assert repo.config() == {"markdown": True, "pdf": False, "kicad": True, "sqlite": True}
+    assert not repo.working(f"{SHEET}/sn74hc00.pdf").exists()
     assert (repo.root / "library" / "datasheets.sqlite").exists()
     assert sync.status(repo)["clean"]
 
@@ -385,3 +386,36 @@ def test_cli_confirm(repo, capsys):
     assert cli.main(["--json", "-C", str(repo.root), "confirm", "SN74HC00N"]) == 0
     items = json.loads(capsys.readouterr().out)["items"]
     assert {i["item"]: i["review"] for i in items} == {"pin_map": "unchecked", "symbol": "confirmed"}
+
+
+def test_pdf_lives_in_the_family_folder_while_asked_for(repo, server):
+    repo.set_config(pdf=True)
+    assert repo.config()["pdf"] and repo.config()["markdown"]
+    report = sync.pull(repo, server)
+    target = repo.working(f"{SHEET}/sn74hc00.pdf")
+    assert report["pdfs"] == 1 and target.read_bytes() == b"%PDF-1"
+    assert sync.pdf(repo, server, "SN74HC00N") == str(target)
+    status = sync.status(repo)
+    assert status["clean"] and status["untracked"] == []
+    server.pdfs[SHEET].update(name="sn74hc00-rev2.pdf", data=b"%PDF-2")
+    sync.pull(repo, server)
+    assert not target.exists() and repo.working(f"{SHEET}/sn74hc00-rev2.pdf").read_bytes() == b"%PDF-2"
+    repo.set_config(pdf=False)
+    assert sync.pull(repo, server)["pdfs"] == 0
+    assert not repo.working(f"{SHEET}/sn74hc00-rev2.pdf").exists()
+    assert repo.working(f"{SHEET}/datasheet.md").exists()
+
+
+def test_an_older_layout_moves_into_family_folders(tmp_path, server):
+    old_part, old_sheet = "parts/TI/SN74HC00N", "datasheets/TI/sn74hc00"
+    server.parts[PART]["path"] = old_part
+    server.datasheets = {old_sheet: server.datasheets.pop(SHEET)}
+    repo = Repo.find(sync.clone(server, "7", str(tmp_path / "wc"))["root"])
+    assert repo.working(f"{old_sheet}/datasheet.md").exists()
+    server.parts[PART]["path"] = PATH
+    server.datasheets = {SHEET: server.datasheets.pop(old_sheet)}
+    sync.pull(repo, server)
+    assert repo.working(f"{PATH}/pins.csv").exists() and repo.working(f"{SHEET}/datasheet.md").exists()
+    assert repo.working(f"{SHEET}/images/ff44.png").exists()
+    assert not repo.working("parts/TI").exists() and not repo.working("datasheets").exists()
+    assert sync.status(repo)["clean"]

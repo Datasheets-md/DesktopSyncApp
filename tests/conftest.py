@@ -10,8 +10,8 @@ from datasheets_md import sync
 from datasheets_md.http import ApiError
 
 PART = "11111111-1111-1111-1111-111111111111"
-PATH = "parts/TI/SN74HC00N"
-SHEET = "datasheets/TI/sn74hc00"
+SHEET = "parts/SN74HC00x_TI"         # the family folder: datasheet.md, images/, the PDF, the part folders
+PATH = f"{SHEET}/SN74HC00N"
 
 
 def etag(text):
@@ -43,6 +43,7 @@ class FakeServer:
         # One per family, downloaded through `part`.
         self.datasheets = {SHEET: {"part": PART, "images": {"ff44.png": b"PNG1"},
                                    "text": "## Page 1\n{{figure:ff44 bbox=0,0,1,1}}\n![Pinout](images/ff44.png)\n"}}
+        self.pdfs = {SHEET: {"name": "sn74hc00.pdf", "part": PART, "data": b"%PDF-1"}}
         self.settings = {"settings/mappings/1-default.yaml": "name: default\n", "settings/symbol_style.yaml": "style: {}\n"}
         self.pushes = []
         self.feedback = []
@@ -70,7 +71,9 @@ class FakeServer:
                    "settings": {p: etag(t) for p, t in self.settings.items()},
                    "parts": [{"uuid": u, "path": p["path"], "files": {n: etag(t) for n, t in p["files"].items()}}
                              for u, p in self.parts.items()],
-                   "datasheets": {f: {"etag": etag(d["text"]), "part": d["part"]} for f, d in self.datasheets.items()}}
+                   "datasheets": {f: {"etag": etag(d["text"]), "part": d["part"]} for f, d in self.datasheets.items()},
+                   "pdfs": {f: {"name": d["name"], "etag": etag(d["data"].decode()), "part": d["part"]}
+                            for f, d in self.pdfs.items()}}
             if not self.incremental:
                 return out
             since = (params or {}).get("since")
@@ -93,6 +96,11 @@ class FakeServer:
                 for name, data in sheet["images"].items():
                     archive.writestr(f"images/{name}", data)
             return SimpleNamespace(content=buffer.getvalue())
+        if path.endswith("/download-pdf/"):
+            pdf = next((d for d in self.pdfs.values() if d["part"] == path.split("/")[3]), None)
+            if pdf is None:
+                raise ApiError("No PDF.", 404)
+            return SimpleNamespace(content=pdf["data"])
         if path == "/workspace/mappings/system-categories/":
             return {"categories": [{"id": "c1", "name": "ICs", "parent_id": None, "parts": 1},
                                    {"id": "c2", "name": "Logic", "parent_id": "c1", "parts": 0}]}
