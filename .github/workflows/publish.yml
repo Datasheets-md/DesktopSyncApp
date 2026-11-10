@@ -16,6 +16,10 @@ on:
   push:
     tags: ['v*']
 
+# Read-only by default; the publish jobs add id-token: write for OIDC.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -36,6 +40,7 @@ jobs:
         run: |
           pip install build twine
           python -m build
+          python -m build gui-package --outdir dist
           twine check dist/*
 
       - uses: actions/upload-artifact@v4
